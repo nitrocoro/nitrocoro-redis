@@ -1,25 +1,23 @@
-#include <nitrocoro/redis/Redis.h>
+#include <nitrocoro/redis/RedisClient.h>
 #include <nitrocoro/testing/Test.h>
 
 using namespace nitrocoro;
 using namespace nitrocoro::redis;
 
-NITRO_TEST(test_redis)
+NITRO_TEST(test_redis_client)
 {
-    NITRO_INFO("Testing Redis");
+    NITRO_INFO("Testing RedisClient");
 
-    // Soft assertions (continue on failure)
-    NITRO_CHECK(1 + 1 == 2);
-    NITRO_CHECK_EQ(42, 42);
-    NITRO_CHECK_NE(1, 2);
+    RedisClient client("127.0.0.1", 6379);
+    co_await client.connect();
 
-    // Hard assertions (abort test on failure)
-    NITRO_REQUIRE(true);
-    NITRO_REQUIRE_EQ(10, 10);
+    co_await client.set("test_key", "test_value");
+    auto value = co_await client.get("test_key");
+    NITRO_CHECK_EQ(value, "test_value");
 
-    // Exception checks
-    NITRO_CHECK_THROWS(throw std::runtime_error("test"));
-    NITRO_CHECK_THROWS_AS(throw std::logic_error("test"), std::logic_error);
+    co_await client.del("test_key");
+    auto deleted = co_await client.get("test_key");
+    NITRO_CHECK_EQ(deleted, "");
 
     co_return;
 }

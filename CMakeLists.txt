@@ -40,14 +40,15 @@ else()
 endif()
 
 add_library(nitrocoro-redis STATIC
-    src/Redis.cc
+    src/RedisConnection.cc
+    src/RedisClient.cc
 )
 
 target_include_directories(nitrocoro-redis PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/include
 )
 
-target_link_libraries(nitrocoro-redis PUBLIC nitrocoro)
+target_link_libraries(nitrocoro-redis PUBLIC nitrocoro hiredis)
 
 add_executable(redis_test tests/redis_test.cc)
 target_link_libraries(redis_test PRIVATE nitrocoro-redis)

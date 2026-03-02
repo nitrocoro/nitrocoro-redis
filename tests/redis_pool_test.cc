@@ -18,15 +18,15 @@ static int getPort()
     return env ? std::atoi(env) : 6379;
 }
 
+auto factory = []() -> Task<std::unique_ptr<RedisConnection>> {
+    auto conn = std::make_unique<RedisConnection>(getHost(), getPort());
+    co_await conn->connect();
+    co_return conn;
+};
+
 NITRO_TEST(test_redis_pool_basic)
 {
     NITRO_INFO("Testing RedisPool basic functionality\n");
-
-    auto factory = []() -> Task<std::shared_ptr<RedisConnection>> {
-        auto conn = std::make_shared<RedisConnection>(getHost(), getPort());
-        co_await conn->connect();
-        co_return conn;
-    };
 
     RedisPool pool(2, factory);
 
@@ -46,12 +46,6 @@ NITRO_TEST(test_redis_pool_multiple_connections)
 {
     NITRO_INFO("Testing RedisPool multiple connections\n");
 
-    auto factory = []() -> Task<std::shared_ptr<RedisConnection>> {
-        auto conn = std::make_shared<RedisConnection>(getHost(), getPort());
-        co_await conn->connect();
-        co_return conn;
-    };
-
     RedisPool pool(2, factory);
 
     // Acquire two connections
@@ -66,7 +60,7 @@ NITRO_TEST(test_redis_pool_multiple_connections)
     auto result2 = co_await conn2->execute("SET %s %s", "key2", "value2");
 
     NITRO_CHECK(!result1.isError());
-    NITRO_CHECK(!result1.isError());
+    NITRO_CHECK(!result2.isError());
 
     NITRO_INFO("RedisPool multiple connections test passed\n");
 }

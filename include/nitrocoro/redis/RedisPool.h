@@ -18,31 +18,12 @@ using nitrocoro::Promise;
 using nitrocoro::Scheduler;
 using nitrocoro::Task;
 
-class PooledConnection
-{
-public:
-    PooledConnection(std::shared_ptr<RedisConnection> conn,
-                     std::function<void(std::shared_ptr<RedisConnection>)> returnFn);
-    ~PooledConnection() noexcept;
-
-    PooledConnection(const PooledConnection &) = delete;
-    PooledConnection & operator=(const PooledConnection &) = delete;
-    PooledConnection(PooledConnection &&) = default;
-    PooledConnection & operator=(PooledConnection &&) = default;
-
-    RedisConnection * operator->() const { return conn_.get(); }
-    RedisConnection & operator*() const { return *conn_; }
-    explicit operator bool() const noexcept { return conn_ != nullptr; }
-
-private:
-    std::shared_ptr<RedisConnection> conn_;
-    std::function<void(std::shared_ptr<RedisConnection>)> returnFn_;
-};
+using PooledConnectionPtr = std::unique_ptr<RedisConnection, std::function<void(RedisConnection *)>>;
 
 class RedisPool
 {
 public:
-    using Factory = std::function<Task<std::shared_ptr<RedisConnection>>()>;
+    using Factory = std::function<Task<std::unique_ptr<RedisConnection>>()>;
 
     RedisPool(size_t maxSize, Factory factory, Scheduler * scheduler = Scheduler::current())
         : factory_(std::move(factory)), scheduler_(scheduler), maxSize_(maxSize)
@@ -51,19 +32,19 @@ public:
     RedisPool(const RedisPool &) = delete;
     RedisPool & operator=(const RedisPool &) = delete;
 
-    [[nodiscard]] Task<PooledConnection> acquire();
+    [[nodiscard]] Task<PooledConnectionPtr> acquire();
     size_t idleCount() const { return idle_.size(); }
 
 private:
-    void returnConnection(std::shared_ptr<RedisConnection> conn) noexcept;
+    void returnConnection(RedisConnection * conn) noexcept;
 
     Factory factory_;
     Scheduler * scheduler_;
     size_t maxSize_;
     size_t totalCount_{ 0 };
     Mutex mutex_;
-    std::queue<std::shared_ptr<RedisConnection>> idle_;
-    std::queue<Promise<std::shared_ptr<RedisConnection>>> waiters_;
+    std::queue<std::unique_ptr<RedisConnection>> idle_;
+    std::queue<Promise<std::unique_ptr<RedisConnection>>> waiters_;
 };
 
 } // namespace nitrocoro::redis

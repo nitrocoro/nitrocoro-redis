@@ -1,33 +1,11 @@
 #include "nitrocoro/redis/RedisPool.h"
 
-#include <nitrocoro/utils/Debug.h>
-
 namespace nitrocoro::redis
 {
 
-PooledConnection::PooledConnection(std::shared_ptr<RedisConnection> conn,
-                                   std::function<void(std::shared_ptr<RedisConnection>)> returnFn)
-    : conn_(std::move(conn)), returnFn_(std::move(returnFn))
+Task<PooledConnectionPtr> RedisPool::acquire()
 {
-}
-
-PooledConnection::~PooledConnection() noexcept
-{
-    if (conn_)
-    {
-        try
-        {
-            returnFn_(std::move(conn_));
-        }
-        catch (...)
-        {
-        }
-    }
-}
-
-Task<PooledConnection> RedisPool::acquire()
-{
-    std::shared_ptr<RedisConnection> conn;
+    std::unique_ptr<RedisConnection> conn;
     {
         [[maybe_unused]] auto lock = co_await mutex_.scoped_lock();
         if (!idle_.empty())
@@ -41,7 +19,7 @@ Task<PooledConnection> RedisPool::acquire()
         }
         else
         {
-            Promise<std::shared_ptr<RedisConnection>> promise(scheduler_);
+            Promise<std::unique_ptr<RedisConnection>> promise(scheduler_);
             auto future = promise.get_future();
             waiters_.push(std::move(promise));
             lock.unlock();
@@ -69,23 +47,27 @@ Task<PooledConnection> RedisPool::acquire()
         }
     }
 
-    co_return PooledConnection(std::move(conn), [this](std::shared_ptr<RedisConnection> c) {
-        returnConnection(std::move(c));
-    });
+    co_return PooledConnectionPtr{
+        conn.release(),
+        [this](RedisConnection * ptr) {
+            returnConnection(ptr);
+        }
+    };
 }
 
-void RedisPool::returnConnection(std::shared_ptr<RedisConnection> conn) noexcept
+void RedisPool::returnConnection(RedisConnection * conn) noexcept
 {
-    scheduler_->spawn([this, conn = std::move(conn)]() mutable -> Task<> {
+    std::unique_ptr<RedisConnection> connPtr(conn);
+    scheduler_->spawn([this, connPtr = std::move(connPtr)]() mutable -> Task<> {
         [[maybe_unused]] auto lock = co_await mutex_.scoped_lock();
         if (!waiters_.empty())
         {
-            waiters_.front().set_value(std::move(conn));
+            waiters_.front().set_value(std::move(connPtr));
             waiters_.pop();
         }
         else
         {
-            idle_.push(std::move(conn));
+            idle_.push(std::move(connPtr));
         }
     });
 }

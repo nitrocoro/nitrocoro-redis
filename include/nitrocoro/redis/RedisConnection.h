@@ -24,7 +24,10 @@ public:
     ~RedisConnection();
 
     Task<> connect();
-    Task<std::string> execute(const std::vector<std::string> & args);
+
+    template <typename... Args>
+    Task<std::string> execute(const char * format, Args &&... args);
+    Task<std::string> executeFormatted(const char * cmd, int len);
 
 private:
     struct IoContext;
@@ -36,3 +39,5 @@ private:
 };
 
 } // namespace nitrocoro::redis
+
+#include "RedisConnection.inl"

@@ -4,6 +4,7 @@
 
 #include <hiredis/async.h>
 
+#include <cstdarg>
 #include <cstring>
 #include <errno.h>
 #include <stdexcept>
@@ -51,7 +52,7 @@ RedisConnection::~RedisConnection()
     }
 }
 
-Task<void> RedisConnection::connect()
+Task<> RedisConnection::connect()
 {
     NITRO_TRACE("[Redis] Connecting to %s:%d\n", host_.c_str(), port_);
 
@@ -157,94 +158,62 @@ Task<void> RedisConnection::connect()
     co_return;
 }
 
-Task<std::string> RedisConnection::execute(const std::vector<std::string> & args)
+Task<std::string> RedisConnection::executeFormatted(const char * cmd, int len)
 {
-    co_return "aaa";
+    if (!ioCtx_ || !ioCtx_->redisCtx)
+        throw std::runtime_error("Not connected");
 
-    // if (args.empty())
-    // {
-    //     throw std::runtime_error("Empty command");
-    // }
-    //
-    // std::vector<const char *> argv;
-    // std::vector<size_t> argvlen;
-    // for (const auto & arg : args)
-    // {
-    //     argv.push_back(arg.c_str());
-    //     argvlen.push_back(arg.size());
-    // }
-    //
-    // int ret = redisAppendCommandArgv(redisCtx_.get(), args.size(), argv.data(), argvlen.data());
-    // if (ret != REDIS_OK)
-    // {
-    //     throw std::runtime_error("Failed to append command");
-    // }
-    //
-    // auto writeResult = co_await channel_->performWrite([this](int, IoChannel * ch) -> IoChannel::IoStatus {
-    //     int done = 0;
-    //     if (redisBufferWrite(redisCtx_.get(), &done) == REDIS_ERR)
-    //     {
-    //         return IoChannel::IoStatus::Error;
-    //     }
-    //     if (done)
-    //     {
-    //         ch->disableWriting();
-    //         return IoChannel::IoStatus::Success;
-    //     }
-    //     ch->enableWriting();
-    //     return IoChannel::IoStatus::NeedWrite;
-    // });
-    //
-    // if (writeResult != IoChannel::IoResult::Success)
-    // {
-    //     throw std::runtime_error("Failed to write command");
-    // }
-    //
-    // redisReply * reply = nullptr;
-    // auto readResult = co_await channel_->performRead([this, &reply](int, IoChannel *) -> IoChannel::IoStatus {
-    //     if (redisBufferRead(redisCtx_.get()) == REDIS_ERR)
-    //     {
-    //         return IoChannel::IoStatus::Error;
-    //     }
-    //     if (redisGetReply(redisCtx_.get(), (void **)&reply) == REDIS_OK && reply)
-    //     {
-    //         return IoChannel::IoStatus::Success;
-    //     }
-    //     return IoChannel::IoStatus::NeedRead;
-    // });
-    //
-    // if (readResult != IoChannel::IoResult::Success)
-    // {
-    //     throw std::runtime_error("Failed to read reply");
-    // }
-    //
-    // if (!reply)
-    // {
-    //     throw std::runtime_error("No reply received");
-    // }
-    //
-    // std::string result;
-    // if (reply->type == REDIS_REPLY_STRING || reply->type == REDIS_REPLY_STATUS)
-    // {
-    //     result = std::string(reply->str, reply->len);
-    // }
-    // else if (reply->type == REDIS_REPLY_INTEGER)
-    // {
-    //     result = std::to_string(reply->integer);
-    // }
-    // else if (reply->type == REDIS_REPLY_NIL)
-    // {
-    //     result = "";
-    // }
-    // else if (reply->type == REDIS_REPLY_ERROR)
-    // {
-    //     std::string err(reply->str, reply->len);
-    //     freeReplyObject(reply);
-    //     throw std::runtime_error("Redis error: " + err);
-    // }
-    //
-    // freeReplyObject(reply);
-    // co_return result;
+    // Create callback context
+    struct CallbackContext
+    {
+        Promise<std::string> promise;
+    };
+
+    auto ctx = std::make_unique<CallbackContext>(CallbackContext{ Promise<std::string>(scheduler_) });
+    auto future = ctx->promise.get_future();
+
+    // Send command
+    int ret = redisAsyncFormattedCommand(
+        ioCtx_->redisCtx.get(),
+        [](redisAsyncContext *, void * reply, void * privdata) {
+            auto * ctx = static_cast<CallbackContext *>(privdata);
+            auto * r = static_cast<redisReply *>(reply);
+            if (!r)
+            {
+                ctx->promise.set_exception(std::make_exception_ptr(std::runtime_error("No reply")));
+                return;
+            }
+            if (r->type == REDIS_REPLY_ERROR)
+            {
+                ctx->promise.set_exception(
+                    std::make_exception_ptr(std::runtime_error(std::string(r->str, r->len))));
+            }
+            else if (r->type == REDIS_REPLY_STRING || r->type == REDIS_REPLY_STATUS)
+            {
+                ctx->promise.set_value(std::string(r->str, r->len));
+            }
+            else if (r->type == REDIS_REPLY_INTEGER)
+            {
+                ctx->promise.set_value(std::to_string(r->integer));
+            }
+            else if (r->type == REDIS_REPLY_NIL)
+            {
+                ctx->promise.set_value("");
+            }
+            else
+            {
+                ctx->promise.set_exception(
+                    std::make_exception_ptr(std::runtime_error("Unsupported reply type")));
+            }
+        },
+        ctx.get(),
+        cmd,
+        len);
+
+    if (ret != REDIS_OK)
+        throw std::runtime_error("Failed to send command");
+
+    co_return co_await future.get();
 }
 
 } // namespace nitrocoro::redis

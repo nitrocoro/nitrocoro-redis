@@ -10,10 +10,29 @@ NITRO_TEST(test_redis_client)
 
     RedisConnection conn("127.0.0.1", 6379);
     co_await conn.connect();
+    NITRO_INFO("Connected to Redis\n");
 
-    NITRO_INFO("connected\n");
-    NITRO_CHECK(true);
+    // Test SET
+    auto setResult = co_await conn.execute("SET %s %s", "test_key", "test_value");
+    NITRO_INFO("SET result: %s\n", setResult.c_str());
+    NITRO_CHECK(setResult == "OK");
 
+    // Test GET
+    auto getResult = co_await conn.execute("GET %s", "test_key");
+    NITRO_INFO("GET result: %s\n", getResult.c_str());
+    NITRO_CHECK(getResult == "test_value");
+
+    // Test INCR
+    auto incrResult = co_await conn.execute("INCR %s", "counter");
+    NITRO_INFO("INCR result: %s\n", incrResult.c_str());
+    NITRO_CHECK(!incrResult.empty());
+
+    // Test DEL
+    auto delResult = co_await conn.execute("DEL %s %s", "test_key", "counter");
+    NITRO_INFO("DEL result: %s\n", delResult.c_str());
+    NITRO_CHECK(delResult == "2");
+
+    NITRO_INFO("All tests passed\n");
     co_return;
 }
 

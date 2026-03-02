@@ -11,111 +11,138 @@
 namespace nitrocoro::redis
 {
 
-RedisConnection::RedisConnection(redisAsyncContext * ctx, std::unique_ptr<IoChannel> channel)
-    : redisCtx_(ctx), channel_(std::move(channel)) {}
+struct RedisConnection::IoContext
+{
+    struct RedisAsyncDeleter
+    {
+        void operator()(redisAsyncContext * ctx) const
+        {
+            if (ctx)
+                redisAsyncFree(ctx);
+        }
+    };
+
+    using RedisAsyncContextPtr = std::unique_ptr<redisAsyncContext, RedisAsyncDeleter>;
+
+    RedisAsyncContextPtr redisCtx;
+    std::unique_ptr<IoChannel> channel;
+    std::atomic<bool> running{ true };
+    std::unique_ptr<Promise<>> connectPromise;
+
+    ~IoContext()
+    {
+        if (channel)
+            channel->disableAll();
+    }
+};
+
+RedisConnection::RedisConnection(std::string host, int port, Scheduler * scheduler)
+    : host_(std::move(host)), port_(port), scheduler_(scheduler)
+{
+}
 
 RedisConnection::~RedisConnection()
 {
-    channel_->disableAll();
+    if (ioCtx_)
+    {
+        ioCtx_->running = false;
+        if (ioCtx_->channel)
+            ioCtx_->channel->cancelAll();
+    }
 }
 
-Task<std::shared_ptr<RedisConnection>> RedisConnection::connect(
-    std::string host, int port, Scheduler * scheduler)
+Task<void> RedisConnection::connect()
 {
-    NITRO_TRACE("[Redis] Connecting to %s:%d\n", host.c_str(), port);
+    NITRO_TRACE("[Redis] Connecting to %s:%d\n", host_.c_str(), port_);
 
     // Step 1: Create async connection
-    redisAsyncContext * asyncCtx = redisAsyncConnect(host.c_str(), port);
-    if (!asyncCtx || asyncCtx->err)
+    IoContext::RedisAsyncContextPtr redisCtxPtr(redisAsyncConnect(host_.c_str(), port_));
+    auto * redisCtx = redisCtxPtr.get();
+    if (!redisCtx || redisCtx->err)
     {
-        std::string err = asyncCtx ? asyncCtx->errstr : "allocation failed";
+        std::string err = redisCtx ? redisCtx->errstr : "allocation failed";
         NITRO_ERROR("[Redis] redisAsyncConnect failed: %s\n", err.c_str());
         throw std::runtime_error("Redis connection failed: " + err);
     }
-    NITRO_TRACE("[Redis] redisAsyncConnect created, fd=%d\n", asyncCtx->c.fd);
+    NITRO_TRACE("[Redis] redisAsyncConnect created, fd=%d\n", redisCtx->c.fd);
 
     // Step 2: Switch to scheduler thread
-    co_await scheduler->switch_to();
+    co_await scheduler_->switch_to();
 
-    // Step 3: Create IoChannel to monitor socket
-    auto channel = std::make_unique<IoChannel>(asyncCtx->c.fd, TriggerMode::LevelTriggered, scheduler);
-
-    // Step 3.5: Create temporary context to store necessary data
-    struct ConnectContext
-    {
-        IoChannel * channel;
-        Promise<> * promise;
-        std::atomic<bool> done{ false };
-    };
-    Promise<> connectPromise(scheduler);
-    auto ctx = std::make_unique<ConnectContext>();
-    ctx->channel = channel.get();
-    ctx->promise = &connectPromise;
+    // Step 3: Create IO context with all resources
+    ioCtx_ = std::make_shared<IoContext>();
+    ioCtx_->redisCtx = std::move(redisCtxPtr);
+    ioCtx_->channel = std::make_unique<IoChannel>(ioCtx_->redisCtx->c.fd, TriggerMode::LevelTriggered, scheduler_);
+    ioCtx_->connectPromise = std::make_unique<Promise<>>(scheduler_);
 
     // Step 4: Setup hiredis event hooks
-    asyncCtx->ev.addRead = [](void * privdata) {
-        auto * ctx = static_cast<ConnectContext *>(privdata);
+    redisCtx->ev.data = ioCtx_.get();
+    redisCtx->ev.addRead = [](void * privdata) {
+        auto * ctx = static_cast<IoContext *>(privdata);
         ctx->channel->enableReading();
     };
-    asyncCtx->ev.delRead = [](void * privdata) {
-        auto * ctx = static_cast<ConnectContext *>(privdata);
+    redisCtx->ev.delRead = [](void * privdata) {
+        auto * ctx = static_cast<IoContext *>(privdata);
         ctx->channel->disableReading();
     };
-    asyncCtx->ev.addWrite = [](void * privdata) {
-        auto * ctx = static_cast<ConnectContext *>(privdata);
+    redisCtx->ev.addWrite = [](void * privdata) {
+        auto * ctx = static_cast<IoContext *>(privdata);
         ctx->channel->enableWriting();
     };
-    asyncCtx->ev.delWrite = [](void * privdata) {
-        auto * ctx = static_cast<ConnectContext *>(privdata);
+    redisCtx->ev.delWrite = [](void * privdata) {
+        auto * ctx = static_cast<IoContext *>(privdata);
         ctx->channel->disableWriting();
     };
-    asyncCtx->ev.data = ctx.get();
 
     // Step 5: Register connection complete callback
-    redisAsyncSetConnectCallback(asyncCtx, [](const redisAsyncContext * c, int status) {
-        auto * ctx = static_cast<ConnectContext *>(c->ev.data);
+    int ret = redisAsyncSetConnectCallback(redisCtx, [](const redisAsyncContext * c, int status) {
+        auto * ctx = static_cast<IoContext *>(c->ev.data);
         NITRO_TRACE("[Redis] Connect callback: status=%d (%s)\n", status, status == REDIS_OK ? "OK" : "ERROR");
-        ctx->done = true;
         if (status != REDIS_OK)
         {
             NITRO_ERROR("[Redis] Connection failed: %s\n", c->errstr);
-            ctx->promise->set_exception(std::make_exception_ptr(std::runtime_error(c->errstr)));
+            ctx->connectPromise->set_exception(std::make_exception_ptr(std::runtime_error(c->errstr)));
         }
         else
         {
             NITRO_TRACE("[Redis] Connection successful\n");
-            ctx->promise->set_value();
+            ctx->connectPromise->set_value();
         }
     });
+    if (ret != REDIS_OK)
+    {
+        NITRO_ERROR("[Redis] Failed to set connect callback\n");
+        throw std::runtime_error("Failed to set connect callback");
+    }
     NITRO_TRACE("[Redis] Connect callback registered\n");
 
-    // Step 6: Start read/write coroutines to drive IO
-    channel->enableReading();
+    // Step 6: Start read/write coroutines
+    ioCtx_->channel->enableReading();
     NITRO_TRACE("[Redis] Starting IO coroutines\n");
 
-    scheduler->spawn([asyncCtx, ctxPtr = ctx.get()]() -> Task<> {
+    scheduler_->spawn([ioCtx = ioCtx_]() -> Task<> {
         NITRO_TRACE("[Redis] Read coroutine started\n");
-        co_await ctxPtr->channel->performRead([asyncCtx, ctxPtr](int, IoChannel *) -> IoChannel::IoStatus {
-            if (ctxPtr->done)
+        co_await ioCtx->channel->performRead([ioCtx](int, IoChannel *) -> IoChannel::IoStatus {
+            if (!ioCtx->running)
             {
-                NITRO_TRACE("[Redis] Read coroutine done\n");
+                NITRO_TRACE("[Redis] Read coroutine stopping\n");
                 return IoChannel::IoStatus::Success;
             }
-            redisAsyncHandleRead(asyncCtx);
+            redisAsyncHandleRead(ioCtx->redisCtx.get());
             return IoChannel::IoStatus::NeedRead;
         });
         NITRO_TRACE("[Redis] Read coroutine finished\n");
     });
 
-    scheduler->spawn([asyncCtx, ctxPtr = ctx.get()]() -> Task<> {
+    scheduler_->spawn([ioCtx = ioCtx_]() -> Task<> {
         NITRO_TRACE("[Redis] Write coroutine started\n");
-        co_await ctxPtr->channel->performWrite([asyncCtx, ctxPtr](int, IoChannel *) -> IoChannel::IoStatus {
-            if (ctxPtr->done)
+        co_await ioCtx->channel->performWrite([ioCtx](int, IoChannel *) -> IoChannel::IoStatus {
+            if (!ioCtx->running)
             {
-                NITRO_TRACE("[Redis] Write coroutine done\n");
+                NITRO_TRACE("[Redis] Write coroutine stopping\n");
                 return IoChannel::IoStatus::Success;
             }
-            redisAsyncHandleWrite(asyncCtx);
+            redisAsyncHandleWrite(ioCtx->redisCtx.get());
             return IoChannel::IoStatus::NeedWrite;
         });
         NITRO_TRACE("[Redis] Write coroutine finished\n");
@@ -123,11 +150,11 @@ Task<std::shared_ptr<RedisConnection>> RedisConnection::connect(
 
     // Step 7: Wait for connection to complete
     NITRO_TRACE("[Redis] Waiting for connection to complete...\n");
-    co_await connectPromise.get_future().get();
+    co_await ioCtx_->connectPromise->get_future().get();
     NITRO_TRACE("[Redis] Connection completed successfully\n");
 
-    // Step 8: Return connection object
-    co_return std::shared_ptr<RedisConnection>(new RedisConnection(asyncCtx, std::move(channel)));
+    // Step 8: Connection completed
+    co_return;
 }
 
 Task<std::string> RedisConnection::execute(const std::vector<std::string> & args)

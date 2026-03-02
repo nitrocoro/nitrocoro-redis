@@ -3,34 +3,36 @@
 #include <nitrocoro/core/Scheduler.h>
 #include <nitrocoro/core/Task.h>
 #include <nitrocoro/io/IoChannel.h>
+
 #include <memory>
 #include <string>
 #include <vector>
 
 struct redisAsyncContext;
 
-namespace nitrocoro::redis {
+namespace nitrocoro::redis
+{
 
 using nitrocoro::Scheduler;
 using nitrocoro::Task;
 using nitrocoro::io::IoChannel;
 
-class RedisConnection {
+class RedisConnection
+{
 public:
-    static Task<std::shared_ptr<RedisConnection>> connect(
-        std::string host, 
-        int port,
-        Scheduler* scheduler = Scheduler::current());
-
+    RedisConnection(std::string host, int port, Scheduler * scheduler = Scheduler::current());
     ~RedisConnection();
 
-    Task<std::string> execute(const std::vector<std::string>& args);
+    Task<> connect();
+    Task<std::string> execute(const std::vector<std::string> & args);
 
 private:
-    RedisConnection(redisAsyncContext* ctx, std::unique_ptr<IoChannel> channel);
+    struct IoContext;
 
-    redisAsyncContext* redisCtx_;
-    std::unique_ptr<IoChannel> channel_;
+    std::string host_;
+    int port_;
+    Scheduler * scheduler_;
+    std::shared_ptr<IoContext> ioCtx_;
 };
 
 } // namespace nitrocoro::redis

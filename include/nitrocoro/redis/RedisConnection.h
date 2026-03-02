@@ -10,8 +10,6 @@
 #include <tuple>
 #include <utility>
 
-struct redisAsyncContext;
-
 namespace nitrocoro::redis
 {
 
@@ -20,6 +18,8 @@ class RedisConnection
 public:
     RedisConnection(std::string host, int port, Scheduler * scheduler = Scheduler::current());
     ~RedisConnection();
+    RedisConnection(const RedisConnection &) = delete;
+    RedisConnection & operator=(const RedisConnection &) = delete;
 
     Task<> connect();
     Task<> disconnect();

@@ -123,7 +123,7 @@ Task<> RedisConnection::connect()
 
     scheduler_->spawn([ioCtx = ioCtx_]() -> Task<> {
         NITRO_TRACE("[Redis] Read coroutine started\n");
-        co_await ioCtx->channel->performRead([ioCtx](int, IoChannel *) -> IoChannel::IoStatus {
+        co_await ioCtx->channel->performRead([&](int, IoChannel *) -> IoChannel::IoStatus {
             if (!ioCtx->running)
             {
                 NITRO_TRACE("[Redis] Read coroutine stopping\n");
@@ -137,7 +137,7 @@ Task<> RedisConnection::connect()
 
     scheduler_->spawn([ioCtx = ioCtx_]() -> Task<> {
         NITRO_TRACE("[Redis] Write coroutine started\n");
-        co_await ioCtx->channel->performWrite([ioCtx](int, IoChannel *) -> IoChannel::IoStatus {
+        co_await ioCtx->channel->performWrite([&](int, IoChannel *) -> IoChannel::IoStatus {
             if (!ioCtx->running)
             {
                 NITRO_TRACE("[Redis] Write coroutine stopping\n");

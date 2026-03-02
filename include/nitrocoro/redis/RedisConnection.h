@@ -4,6 +4,7 @@
 #include <nitrocoro/core/Task.h>
 #include <nitrocoro/redis/Result.h>
 
+#include <array>
 #include <memory>
 #include <string>
 #include <tuple>
@@ -44,6 +45,23 @@ private:
     static std::pair<std::unique_ptr<char, void (*)(char *)>, int> formatCommand(const char * format, ...);
     Task<Result> executeFormatted(const char * cmd, int len);
 
+    template <size_t N>
+    static constexpr auto buildEvalFormat()
+    {
+        constexpr char prefix[] = "EVAL %s %d";
+        constexpr char suffix[] = " %s";
+        std::array<char, sizeof(prefix) + N * 3> result = {};
+
+        size_t pos = 0;
+        for (size_t i = 0; i < sizeof(prefix) - 1; ++i)
+            result[pos++] = prefix[i];
+        for (size_t i = 0; i < N; ++i)
+            for (size_t j = 0; j < sizeof(suffix) - 1; ++j)
+                result[pos++] = suffix[j];
+        result[pos] = '\0';
+        return result;
+    }
+
     template <typename... Keys, typename... Args, size_t... KeyIdx, size_t... ArgIdx>
     Task<Result> evalImpl(const std::string & script,
                           const std::tuple<Keys...> & keys,
@@ -53,12 +71,9 @@ private:
     {
         constexpr size_t numKeys = sizeof...(Keys);
         constexpr size_t numArgs = sizeof...(Args);
+        constexpr auto fmt = buildEvalFormat<numKeys + numArgs>();
 
-        std::string fmt = "EVAL %s %d";
-        for (size_t i = 0; i < numKeys + numArgs; ++i)
-            fmt += " %s";
-
-        co_return co_await execute(fmt.c_str(), script.c_str(), static_cast<int>(numKeys),
+        co_return co_await execute(fmt.data(), script.c_str(), static_cast<int>(numKeys),
                                    std::get<KeyIdx>(keys)..., std::get<ArgIdx>(args)...);
     }
 

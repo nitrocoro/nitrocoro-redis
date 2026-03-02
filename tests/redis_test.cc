@@ -101,6 +101,47 @@ NITRO_TEST(test_redis_eval)
     co_return;
 }
 
+NITRO_TEST(test_redis_eval_complex)
+{
+    NITRO_INFO("Testing complex Redis EVAL with control flow\n");
+
+    RedisConnection conn("127.0.0.1", 6379);
+    co_await conn.connect();
+
+    // Setup test data
+    co_await conn.execute("SET %s %s", "counter", "10");
+    co_await conn.execute("SET %s %s", "threshold", "5");
+
+    // Complex Lua script with control flow
+    const char * script = R"(
+        local counter = tonumber(redis.call('get', KEYS[1]))
+        local threshold = tonumber(redis.call('get', KEYS[2]))
+        local increment = tonumber(ARGV[1])
+
+        if counter > threshold then
+            counter = counter + increment
+            redis.call('set', KEYS[1], counter)
+            return {1, counter, 'incremented'}
+        else
+            return {0, counter, 'below threshold'}
+        end
+    )";
+
+    auto result = co_await conn.eval(
+        script,
+        std::make_tuple("counter", "threshold"),
+        std::make_tuple("3"));
+
+    NITRO_CHECK(result.isArray());
+    NITRO_INFO("Complex EVAL with control flow passed\n");
+
+    // Cleanup
+    co_await conn.execute("DEL %s %s", "counter", "threshold");
+    co_await conn.disconnect();
+
+    co_return;
+}
+
 int main()
 {
     return nitrocoro::test::run_all();

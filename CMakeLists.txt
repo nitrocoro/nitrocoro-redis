@@ -42,6 +42,7 @@ endif()
 add_library(nitrocoro-redis STATIC
     src/RedisConnection.cc
     src/Result.cc
+    src/RedisPool.cc
 )
 
 target_include_directories(nitrocoro-redis PUBLIC
@@ -54,3 +55,7 @@ enable_testing()
 add_executable(redis_test tests/redis_test.cc)
 target_link_libraries(redis_test PRIVATE nitrocoro-redis)
 add_test(NAME redis_test COMMAND redis_test)
+
+add_executable(redis_pool_test tests/redis_pool_test.cc)
+target_link_libraries(redis_pool_test PRIVATE nitrocoro-redis)
+add_test(NAME redis_pool_test COMMAND redis_pool_test)

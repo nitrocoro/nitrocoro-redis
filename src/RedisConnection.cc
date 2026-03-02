@@ -278,7 +278,9 @@ std::pair<std::unique_ptr<char, void (*)(char *)>, int> RedisConnection::formatC
 
     va_end(ap);
 
-    if (len == -1)
+    if (len == -2)
+        throw std::runtime_error("Invalid format string");
+    if (len < 0)
         throw std::runtime_error("Failed to format command");
 
     return { std::unique_ptr<char, void (*)(char *)>(rawCmd, redisFreeCommand), len };

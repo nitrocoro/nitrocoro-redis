@@ -59,6 +59,48 @@ NITRO_TEST(test_redis_auto_disconnect)
     co_return;
 }
 
+NITRO_TEST(test_redis_eval)
+{
+    NITRO_INFO("Testing Redis EVAL\n");
+
+    RedisConnection conn("127.0.0.1", 6379);
+    co_await conn.connect();
+
+    // Test simple eval
+    auto result1 = co_await conn.eval("return 'hello'", std::tuple{}, std::tuple{});
+    NITRO_INFO("EVAL result: %s\n", std::string(result1.asString()).c_str());
+    NITRO_CHECK(result1.isString() && result1.asString() == "hello");
+
+    // Test eval with keys
+    auto result2 = co_await conn.eval("return KEYS[1]", std::make_tuple("mykey"), std::tuple{});
+    NITRO_INFO("EVAL with key result: %s\n", std::string(result2.asString()).c_str());
+    NITRO_CHECK(result2.isString() && result2.asString() == "mykey");
+
+    // Test eval with keys and args
+    auto result3 = co_await conn.eval(
+        "return redis.call('set', KEYS[1], ARGV[1])",
+        std::make_tuple("eval_key"),
+        std::make_tuple("eval_value"));
+    NITRO_CHECK(result3.isStatus() && result3.asString() == "OK");
+
+    auto getResult = co_await conn.execute("GET %s", "eval_key");
+    NITRO_CHECK(getResult.isString() && getResult.asString() == "eval_value");
+
+    // Test eval with multiple keys and args
+    auto result4 = co_await conn.eval(
+        "return {KEYS[1], KEYS[2], ARGV[1], ARGV[2]}",
+        std::make_tuple("key1", "key2"),
+        std::make_tuple("arg1", "arg2"));
+    NITRO_CHECK(result4.isArray());
+
+    // Cleanup
+    co_await conn.execute("DEL %s", "eval_key");
+    co_await conn.disconnect();
+
+    NITRO_INFO("EVAL tests passed\n");
+    co_return;
+}
+
 int main()
 {
     return nitrocoro::test::run_all();

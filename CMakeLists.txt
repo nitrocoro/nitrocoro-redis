@@ -41,7 +41,6 @@ endif()
 
 add_library(nitrocoro-redis STATIC
     src/RedisConnection.cc
-    src/RedisClient.cc
 )
 
 target_include_directories(nitrocoro-redis PUBLIC

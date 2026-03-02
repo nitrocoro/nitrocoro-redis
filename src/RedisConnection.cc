@@ -20,30 +20,25 @@ using nitrocoro::Task;
 using nitrocoro::TriggerMode;
 using nitrocoro::io::IoChannel;
 
+struct RedisAsyncDeleter
+{
+    void operator()(redisAsyncContext * ctx) const
+    {
+        if (ctx)
+            redisAsyncFree(ctx);
+    }
+};
+
+using RedisAsyncContextPtr = std::unique_ptr<redisAsyncContext, RedisAsyncDeleter>;
+
 struct RedisConnection::IoContext
 {
-    struct RedisAsyncDeleter
-    {
-        void operator()(redisAsyncContext * ctx) const
-        {
-            if (ctx)
-                redisAsyncFree(ctx);
-        }
-    };
-
-    using RedisAsyncContextPtr = std::unique_ptr<redisAsyncContext, RedisAsyncDeleter>;
-
     RedisAsyncContextPtr redisCtx;
     std::unique_ptr<IoChannel> channel;
     bool running{ true };
     bool disconnecting{ false };
     std::unique_ptr<Promise<>> connectPromise;
     std::unique_ptr<Promise<>> disconnectPromise;
-
-    ~IoContext()
-    {
-        // Channel disableAll already called in disconnect callback
-    }
 };
 
 RedisConnection::RedisConnection(std::string host, int port, Scheduler * scheduler)
@@ -81,7 +76,7 @@ Task<> RedisConnection::connect()
     NITRO_TRACE("[Redis] Connecting to %s:%d\n", host_.c_str(), port_);
 
     // Step 1: Create async connection
-    IoContext::RedisAsyncContextPtr redisCtxPtr(redisAsyncConnect(host_.c_str(), port_));
+    RedisAsyncContextPtr redisCtxPtr(redisAsyncConnect(host_.c_str(), port_));
     auto * redisCtx = redisCtxPtr.get();
     if (!redisCtx || redisCtx->err)
     {

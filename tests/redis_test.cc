@@ -1,14 +1,28 @@
 #include <nitrocoro/redis/RedisConnection.h>
 #include <nitrocoro/testing/Test.h>
 
+#include <cstdlib>
+
 using namespace nitrocoro;
 using namespace nitrocoro::redis;
+
+static std::string getHost()
+{
+    const char * env = std::getenv("REDIS_HOST");
+    return env ? env : "127.0.0.1";
+}
+
+static int getPort()
+{
+    const char * env = std::getenv("REDIS_PORT");
+    return env ? std::atoi(env) : 6379;
+}
 
 NITRO_TEST(test_redis_client)
 {
     NITRO_INFO("Testing RedisClient\n");
 
-    RedisConnection conn("127.0.0.1", 6379);
+    RedisConnection conn(getHost(), getPort());
     co_await conn.connect();
     NITRO_INFO("Connected to Redis\n");
 
@@ -45,7 +59,7 @@ NITRO_TEST(test_redis_auto_disconnect)
     NITRO_INFO("Testing auto disconnect\n");
 
     {
-        RedisConnection conn("127.0.0.1", 6379);
+        RedisConnection conn(getHost(), getPort());
         co_await conn.connect();
         NITRO_INFO("Connected to Redis\n");
 
@@ -63,7 +77,7 @@ NITRO_TEST(test_redis_eval)
 {
     NITRO_INFO("Testing Redis EVAL\n");
 
-    RedisConnection conn("127.0.0.1", 6379);
+    RedisConnection conn(getHost(), getPort());
     co_await conn.connect();
 
     // Test simple eval
@@ -105,7 +119,7 @@ NITRO_TEST(test_redis_eval_complex)
 {
     NITRO_INFO("Testing complex Redis EVAL with control flow\n");
 
-    RedisConnection conn("127.0.0.1", 6379);
+    RedisConnection conn(getHost(), getPort());
     co_await conn.connect();
 
     // Setup test data

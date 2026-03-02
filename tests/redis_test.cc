@@ -32,7 +32,30 @@ NITRO_TEST(test_redis_client)
     NITRO_INFO("DEL result: %s\n", delResult.c_str());
     NITRO_CHECK(delResult == "2");
 
+    // Test disconnect
+    co_await conn.disconnect();
+    NITRO_INFO("Disconnected from Redis\n");
+
     NITRO_INFO("All tests passed\n");
+    co_return;
+}
+
+NITRO_TEST(test_redis_auto_disconnect)
+{
+    NITRO_INFO("Testing auto disconnect\n");
+
+    {
+        RedisConnection conn("127.0.0.1", 6379);
+        co_await conn.connect();
+        NITRO_INFO("Connected to Redis\n");
+
+        auto setResult = co_await conn.execute("SET %s %s", "auto_key", "auto_value");
+        NITRO_CHECK(setResult == "OK");
+
+        // conn will be destroyed here, triggering auto disconnect
+    }
+
+    NITRO_INFO("Auto disconnect test passed\n");
     co_return;
 }
 

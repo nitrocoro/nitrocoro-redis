@@ -24,12 +24,14 @@ public:
     ~RedisConnection();
 
     Task<> connect();
+    Task<> disconnect();
 
     template <typename... Args>
     Task<std::string> execute(const char * format, Args &&... args);
-    Task<std::string> executeFormatted(const char * cmd, int len);
 
 private:
+    Task<std::string> executeFormatted(const char * cmd, int len);
+
     struct IoContext;
 
     std::string host_;

@@ -156,6 +156,63 @@ NITRO_TEST(test_redis_eval_complex)
     co_return;
 }
 
+NITRO_TEST(test_result_interface)
+{
+    NITRO_INFO("Testing Result interface\n");
+
+    RedisConnection conn(getHost(), getPort());
+    co_await conn.connect();
+
+    // Test type() and copy constructor
+    auto statusResult = co_await conn.execute("SET %s %s", "key1", "value1");
+    Result copied(statusResult);
+    NITRO_CHECK(copied.type() == Result::Type::Status);
+    NITRO_CHECK(copied.isStatus());
+
+    // Test copy assignment
+    Result assigned;
+    assigned = statusResult;
+    NITRO_CHECK(assigned.isStatus());
+
+    // Test move constructor
+    auto stringResult = co_await conn.execute("GET %s", "key1");
+    Result moved(std::move(stringResult));
+    NITRO_CHECK(moved.isString());
+
+    // Test move assignment
+    Result moveAssigned;
+    auto tempResult = co_await conn.execute("GET %s", "key1");
+    moveAssigned = std::move(tempResult);
+    NITRO_CHECK(moveAssigned.isString());
+
+    // Test isNil
+    auto nilResult = co_await conn.execute("GET %s", "nonexistent_key");
+    NITRO_CHECK(nilResult.isNil());
+    NITRO_CHECK(nilResult.type() == Result::Type::Nil);
+
+    // Test isError
+    auto errorResult = co_await conn.execute("INVALID_COMMAND");
+    NITRO_CHECK(errorResult.isError());
+    NITRO_CHECK(errorResult.type() == Result::Type::Error);
+
+    // Test asArray with nested elements
+    co_await conn.execute("RPUSH %s %s %s %s", "list1", "a", "b", "c");
+    auto arrayResult = co_await conn.execute("LRANGE %s %d %d", "list1", 0, -1);
+    NITRO_CHECK(arrayResult.isArray());
+    const auto & arr = arrayResult.asArray();
+    NITRO_CHECK(arr.size() == 3);
+    NITRO_CHECK(arr[0].isString() && arr[0].asString() == "a");
+    NITRO_CHECK(arr[1].isString() && arr[1].asString() == "b");
+    NITRO_CHECK(arr[2].isString() && arr[2].asString() == "c");
+
+    // Cleanup
+    co_await conn.execute("DEL %s %s", "key1", "list1");
+    co_await conn.disconnect();
+
+    NITRO_INFO("Result interface tests passed\n");
+    co_return;
+}
+
 int main()
 {
     return nitrocoro::test::run_all();

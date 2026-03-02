@@ -2,21 +2,15 @@
 
 #include <nitrocoro/core/Scheduler.h>
 #include <nitrocoro/core/Task.h>
-#include <nitrocoro/io/IoChannel.h>
 #include <nitrocoro/redis/Result.h>
 
 #include <memory>
 #include <string>
-#include <vector>
 
 struct redisAsyncContext;
 
 namespace nitrocoro::redis
 {
-
-using nitrocoro::Scheduler;
-using nitrocoro::Task;
-using nitrocoro::io::IoChannel;
 
 class RedisConnection
 {
@@ -28,9 +22,14 @@ public:
     Task<> disconnect();
 
     template <typename... Args>
-    Task<Result> execute(const char * format, Args &&... args);
+    Task<Result> execute(const char * format, Args &&... args)
+    {
+        auto [cmd, len] = formatCommand(format, std::forward<Args>(args)...);
+        co_return co_await executeFormatted(cmd.get(), len);
+    }
 
 private:
+    static std::pair<std::unique_ptr<char, void (*)(char *)>, int> formatCommand(const char * format, ...);
     Task<Result> executeFormatted(const char * cmd, int len);
 
     struct IoContext;
@@ -42,5 +41,3 @@ private:
 };
 
 } // namespace nitrocoro::redis
-
-#include "RedisConnection.inl"

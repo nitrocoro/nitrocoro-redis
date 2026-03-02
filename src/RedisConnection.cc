@@ -1,16 +1,24 @@
+#include "nitrocoro/redis/RedisConnection.h"
+
 #include <nitrocoro/core/Future.h>
-#include <nitrocoro/redis/RedisConnection.h>
+#include <nitrocoro/core/Scheduler.h>
+#include <nitrocoro/core/Types.h>
+#include <nitrocoro/io/IoChannel.h>
 #include <nitrocoro/utils/Debug.h>
 
 #include <hiredis/async.h>
 
-#include <cstdarg>
 #include <cstring>
-#include <errno.h>
 #include <stdexcept>
 
 namespace nitrocoro::redis
 {
+
+using nitrocoro::Promise;
+using nitrocoro::Scheduler;
+using nitrocoro::Task;
+using nitrocoro::TriggerMode;
+using nitrocoro::io::IoChannel;
 
 struct RedisConnection::IoContext
 {
@@ -263,6 +271,22 @@ Task<> RedisConnection::disconnect()
 
     co_await future.get();
     NITRO_TRACE("[Redis] Disconnected\n");
+}
+
+std::pair<std::unique_ptr<char, void (*)(char *)>, int> RedisConnection::formatCommand(const char * format, ...)
+{
+    va_list ap;
+    va_start(ap, format);
+
+    char * rawCmd = nullptr;
+    int len = redisvFormatCommand(&rawCmd, format, ap);
+
+    va_end(ap);
+
+    if (len == -1)
+        throw std::runtime_error("Failed to format command");
+
+    return { std::unique_ptr<char, void (*)(char *)>(rawCmd, redisFreeCommand), len };
 }
 
 } // namespace nitrocoro::redis

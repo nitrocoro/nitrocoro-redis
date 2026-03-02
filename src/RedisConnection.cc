@@ -199,7 +199,7 @@ Task<> RedisConnection::connect()
     co_return;
 }
 
-Task<std::string> RedisConnection::executeFormatted(const char * cmd, int len)
+Task<Result> RedisConnection::executeFormatted(const char * cmd, int len)
 {
     if (!ioCtx_ || !ioCtx_->redisCtx)
         throw std::runtime_error("Not connected");
@@ -207,10 +207,10 @@ Task<std::string> RedisConnection::executeFormatted(const char * cmd, int len)
     // Create callback context
     struct CallbackContext
     {
-        Promise<std::string> promise;
+        Promise<Result> promise;
     };
 
-    auto ctx = std::make_unique<CallbackContext>(CallbackContext{ Promise<std::string>(scheduler_) });
+    auto ctx = std::make_unique<CallbackContext>(CallbackContext{ Promise<Result>(scheduler_) });
     auto future = ctx->promise.get_future();
 
     // Send command
@@ -224,27 +224,13 @@ Task<std::string> RedisConnection::executeFormatted(const char * cmd, int len)
                 ctx->promise.set_exception(std::make_exception_ptr(std::runtime_error("No reply")));
                 return;
             }
-            if (r->type == REDIS_REPLY_ERROR)
+            try
             {
-                ctx->promise.set_exception(
-                    std::make_exception_ptr(std::runtime_error(std::string(r->str, r->len))));
+                ctx->promise.set_value(Result::fromRaw(r));
             }
-            else if (r->type == REDIS_REPLY_STRING || r->type == REDIS_REPLY_STATUS)
+            catch (...)
             {
-                ctx->promise.set_value(std::string(r->str, r->len));
-            }
-            else if (r->type == REDIS_REPLY_INTEGER)
-            {
-                ctx->promise.set_value(std::to_string(r->integer));
-            }
-            else if (r->type == REDIS_REPLY_NIL)
-            {
-                ctx->promise.set_value("");
-            }
-            else
-            {
-                ctx->promise.set_exception(
-                    std::make_exception_ptr(std::runtime_error("Unsupported reply type")));
+                ctx->promise.set_exception(std::current_exception());
             }
         },
         ctx.get(),

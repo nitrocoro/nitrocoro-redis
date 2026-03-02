@@ -14,23 +14,23 @@ NITRO_TEST(test_redis_client)
 
     // Test SET
     auto setResult = co_await conn.execute("SET %s %s", "test_key", "test_value");
-    NITRO_INFO("SET result: %s\n", setResult.c_str());
-    NITRO_CHECK(setResult == "OK");
+    NITRO_INFO("SET result: %s\n", std::string(setResult.asString()).c_str());
+    NITRO_CHECK(setResult.isStatus() && setResult.asString() == "OK");
 
     // Test GET
     auto getResult = co_await conn.execute("GET %s", "test_key");
-    NITRO_INFO("GET result: %s\n", getResult.c_str());
-    NITRO_CHECK(getResult == "test_value");
+    NITRO_INFO("GET result: %s\n", std::string(getResult.asString()).c_str());
+    NITRO_CHECK(getResult.isString() && getResult.asString() == "test_value");
 
     // Test INCR
     auto incrResult = co_await conn.execute("INCR %s", "counter");
-    NITRO_INFO("INCR result: %s\n", incrResult.c_str());
-    NITRO_CHECK(!incrResult.empty());
+    NITRO_INFO("INCR result: %lld\n", incrResult.asInteger());
+    NITRO_CHECK(incrResult.isInteger());
 
     // Test DEL
     auto delResult = co_await conn.execute("DEL %s %s", "test_key", "counter");
-    NITRO_INFO("DEL result: %s\n", delResult.c_str());
-    NITRO_CHECK(delResult == "2");
+    NITRO_INFO("DEL result: %lld\n", delResult.asInteger());
+    NITRO_CHECK(delResult.isInteger() && delResult.asInteger() == 2);
 
     // Test disconnect
     co_await conn.disconnect();
@@ -50,7 +50,7 @@ NITRO_TEST(test_redis_auto_disconnect)
         NITRO_INFO("Connected to Redis\n");
 
         auto setResult = co_await conn.execute("SET %s %s", "auto_key", "auto_value");
-        NITRO_CHECK(setResult == "OK");
+        NITRO_CHECK(setResult.isStatus() && setResult.asString() == "OK");
 
         // conn will be destroyed here, triggering auto disconnect
     }

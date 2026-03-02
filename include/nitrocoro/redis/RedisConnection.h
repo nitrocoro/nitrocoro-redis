@@ -3,6 +3,7 @@
 #include <nitrocoro/core/Scheduler.h>
 #include <nitrocoro/core/Task.h>
 #include <nitrocoro/io/IoChannel.h>
+#include <nitrocoro/redis/Result.h>
 
 #include <memory>
 #include <string>
@@ -27,10 +28,10 @@ public:
     Task<> disconnect();
 
     template <typename... Args>
-    Task<std::string> execute(const char * format, Args &&... args);
+    Task<Result> execute(const char * format, Args &&... args);
 
 private:
-    Task<std::string> executeFormatted(const char * cmd, int len);
+    Task<Result> executeFormatted(const char * cmd, int len);
 
     struct IoContext;
 

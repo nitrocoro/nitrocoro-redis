@@ -7,7 +7,7 @@ namespace nitrocoro::redis
 {
 
 template <typename... Args>
-Task<std::string> RedisConnection::execute(const char * format, Args &&... args)
+Task<Result> RedisConnection::execute(const char * format, Args &&... args)
 {
     // Format command
     char * rawCmd = nullptr;

@@ -25,6 +25,11 @@ NITRO_TEST(test_redis_client)
     auto conn = co_await RedisConnection::connect(getHost(), getPort());
     NITRO_INFO("Connected to Redis\n");
 
+    // Test host() and port() methods
+    NITRO_CHECK(conn->host() == getHost());
+    NITRO_CHECK(conn->port() == getPort());
+    NITRO_INFO("Connection info: %s:%d\n", conn->host().c_str(), conn->port());
+
     // Test SET
     auto setResult = co_await conn->execute("SET %s %s", "test_key", "test_value");
     NITRO_INFO("SET result: %s\n", std::string(setResult.asString()).c_str());

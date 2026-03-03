@@ -19,6 +19,11 @@ using nitrocoro::Task;
 using nitrocoro::TriggerMode;
 using nitrocoro::io::IoChannel;
 
+namespace detail
+{
+RedisResult redisReplayToRedisResultImpl(const redisReply * r);
+}
+
 struct RedisAsyncDeleter
 {
     void operator()(redisAsyncContext * ctx) const
@@ -257,7 +262,7 @@ Task<RedisResult> RedisConnection::executeFormatted(const char * cmd, int len)
             }
             try
             {
-                cbCtx->promise.set_value(RedisResult::fromRaw(r));
+                cbCtx->promise.set_value(detail::redisReplayToRedisResultImpl(r));
             }
             catch (...)
             {

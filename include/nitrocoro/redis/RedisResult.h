@@ -7,11 +7,10 @@
 namespace nitrocoro::redis
 {
 
-class RedisConnection;
-
 class RedisResult
 {
 public:
+    struct Impl;
     enum class Type
     {
         String = 1,
@@ -22,6 +21,7 @@ public:
         Error = 6
     };
 
+    explicit RedisResult(std::shared_ptr<Impl> impl);
     RedisResult();
     ~RedisResult();
     RedisResult(const RedisResult &);
@@ -42,13 +42,7 @@ public:
     const std::vector<RedisResult> & asArray() const;
 
 private:
-    friend class RedisConnection;
-    static RedisResult fromRaw(const void * rawReply);
-
-    struct Impl;
     std::shared_ptr<Impl> impl_;
-
-    explicit RedisResult(std::shared_ptr<Impl> impl);
 };
 
 } // namespace nitrocoro::redis

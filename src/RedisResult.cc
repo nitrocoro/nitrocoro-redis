@@ -17,7 +17,9 @@ struct RedisResult::Impl
 };
 
 RedisResult::RedisResult()
-    : impl_(std::make_shared<Impl>()) {}
+    : impl_(std::make_shared<Impl>())
+{
+}
 
 RedisResult::~RedisResult() = default;
 
@@ -30,21 +32,44 @@ RedisResult & RedisResult::operator=(const RedisResult &) = default;
 RedisResult & RedisResult::operator=(RedisResult &&) noexcept = default;
 
 RedisResult::RedisResult(std::shared_ptr<Impl> impl)
-    : impl_(std::move(impl)) {}
+    : impl_(std::move(impl))
+{
+}
 
-RedisResult::Type RedisResult::type() const { return impl_->type; }
+RedisResult::Type RedisResult::type() const
+{
+    return impl_->type;
+}
 
-bool RedisResult::isString() const { return impl_->type == Type::String; }
+bool RedisResult::isString() const
+{
+    return impl_->type == Type::String;
+}
 
-bool RedisResult::isStatus() const { return impl_->type == Type::Status; }
+bool RedisResult::isStatus() const
+{
+    return impl_->type == Type::Status;
+}
 
-bool RedisResult::isError() const { return impl_->type == Type::Error; }
+bool RedisResult::isError() const
+{
+    return impl_->type == Type::Error;
+}
 
-bool RedisResult::isInteger() const { return impl_->type == Type::Integer; }
+bool RedisResult::isInteger() const
+{
+    return impl_->type == Type::Integer;
+}
 
-bool RedisResult::isArray() const { return impl_->type == Type::Array; }
+bool RedisResult::isArray() const
+{
+    return impl_->type == Type::Array;
+}
 
-bool RedisResult::isNil() const { return impl_->type == Type::Nil; }
+bool RedisResult::isNil() const
+{
+    return impl_->type == Type::Nil;
+}
 
 std::string_view RedisResult::asString() const
 {
@@ -71,13 +96,15 @@ const std::vector<RedisResult> & RedisResult::asArray() const
     return impl_->elements;
 }
 
-RedisResult RedisResult::fromRaw(const void * rawReply)
+namespace detail
 {
-    auto * r = static_cast<const redisReply *>(rawReply);
+
+RedisResult redisReplayToRedisResultImpl(const redisReply * r)
+{
     if (!r)
         throw std::runtime_error("Null reply");
 
-    auto impl = std::make_shared<Impl>();
+    auto impl = std::make_shared<RedisResult::Impl>();
     impl->type = static_cast<RedisResult::Type>(r->type);
 
     switch (r->type)
@@ -93,7 +120,7 @@ RedisResult RedisResult::fromRaw(const void * rawReply)
         case REDIS_REPLY_ARRAY:
             impl->elements.reserve(r->elements);
             for (size_t i = 0; i < r->elements; ++i)
-                impl->elements.push_back(fromRaw(r->element[i]));
+                impl->elements.push_back(redisReplayToRedisResultImpl(r->element[i]));
             break;
         case REDIS_REPLY_NIL:
             break;
@@ -103,5 +130,7 @@ RedisResult RedisResult::fromRaw(const void * rawReply)
 
     return RedisResult(std::move(impl));
 }
+
+} // namespace detail
 
 } // namespace nitrocoro::redis

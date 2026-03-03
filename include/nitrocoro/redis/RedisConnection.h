@@ -22,6 +22,7 @@ public:
     RedisConnection(const RedisConnection &) = delete;
     RedisConnection & operator=(const RedisConnection &) = delete;
 
+    // TODO: how to inform and handle broken connection?
     Task<> disconnect();
 
     const std::string & host() const;

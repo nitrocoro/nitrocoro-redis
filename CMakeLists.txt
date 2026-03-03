@@ -7,22 +7,22 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(NITROCORO_BUILD_DIR "" CACHE PATH "NitroCoro build directory (preferred)")
 set(NITROCORO_SOURCE_DIR "" CACHE PATH "NitroCoro source directory (fallback)")
 
-if(NITROCORO_BUILD_DIR)
-    if(NOT NITROCORO_SOURCE_DIR)
-        if(EXISTS "${NITROCORO_BUILD_DIR}/CMakeCache.txt")
-            file(STRINGS "${NITROCORO_BUILD_DIR}/CMakeCache.txt" _source_dir_line 
-                 REGEX "^CMAKE_HOME_DIRECTORY:INTERNAL=")
-            if(_source_dir_line)
+if (NITROCORO_BUILD_DIR)
+    if (NOT NITROCORO_SOURCE_DIR)
+        if (EXISTS "${NITROCORO_BUILD_DIR}/CMakeCache.txt")
+            file(STRINGS "${NITROCORO_BUILD_DIR}/CMakeCache.txt" _source_dir_line
+                REGEX "^CMAKE_HOME_DIRECTORY:INTERNAL=")
+            if (_source_dir_line)
                 string(REGEX REPLACE "^CMAKE_HOME_DIRECTORY:INTERNAL=" "" NITROCORO_SOURCE_DIR "${_source_dir_line}")
                 message(STATUS "Deduced NITROCORO_SOURCE_DIR from CMakeCache.txt: ${NITROCORO_SOURCE_DIR}")
-            endif()
-        endif()
+            endif ()
+        endif ()
 
-        if(NOT NITROCORO_SOURCE_DIR)
+        if (NOT NITROCORO_SOURCE_DIR)
             get_filename_component(NITROCORO_SOURCE_DIR "${NITROCORO_BUILD_DIR}/.." ABSOLUTE)
             message(STATUS "Deduced NITROCORO_SOURCE_DIR from parent directory: ${NITROCORO_SOURCE_DIR}")
-        endif()
-    endif()
+        endif ()
+    endif ()
 
     find_library(NITROCORO_LIB nitrocoro PATHS ${NITROCORO_BUILD_DIR} NO_DEFAULT_PATH REQUIRED)
     add_library(nitrocoro STATIC IMPORTED)
@@ -30,14 +30,14 @@ if(NITROCORO_BUILD_DIR)
         IMPORTED_LOCATION ${NITROCORO_LIB}
         INTERFACE_INCLUDE_DIRECTORIES "${NITROCORO_SOURCE_DIR}/include"
     )
-elseif(NITROCORO_SOURCE_DIR)
+elseif (NITROCORO_SOURCE_DIR)
     add_subdirectory(${NITROCORO_SOURCE_DIR} ${CMAKE_BINARY_DIR}/nitrocoro)
-else()
+else ()
     find_package(nitrocoro QUIET)
-    if(NOT nitrocoro_FOUND)
+    if (NOT nitrocoro_FOUND)
         message(FATAL_ERROR "NitroCoro not found. Please set NITROCORO_BUILD_DIR, NITROCORO_SOURCE_DIR, or install nitrocoro")
-    endif()
-endif()
+    endif ()
+endif ()
 
 add_library(nitrocoro-redis STATIC
     src/RedisConnection.cc
@@ -51,11 +51,16 @@ target_include_directories(nitrocoro-redis PUBLIC
 
 target_link_libraries(nitrocoro-redis PUBLIC nitrocoro hiredis)
 
-enable_testing()
-add_executable(redis_test tests/redis_test.cc)
-target_link_libraries(redis_test PRIVATE nitrocoro-redis)
-add_test(NAME redis_test COMMAND redis_test)
+option(BUILD_TESTING "Build tests" ON)
 
-add_executable(redis_pool_test tests/redis_pool_test.cc)
-target_link_libraries(redis_pool_test PRIVATE nitrocoro-redis)
-add_test(NAME redis_pool_test COMMAND redis_pool_test)
+if (BUILD_TESTING)
+    enable_testing()
+
+    add_executable(redis_test tests/redis_test.cc)
+    target_link_libraries(redis_test PRIVATE nitrocoro-redis)
+    add_test(NAME redis_test COMMAND redis_test)
+
+    add_executable(redis_pool_test tests/redis_pool_test.cc)
+    target_link_libraries(redis_pool_test PRIVATE nitrocoro-redis)
+    add_test(NAME redis_pool_test COMMAND redis_pool_test)
+endif ()

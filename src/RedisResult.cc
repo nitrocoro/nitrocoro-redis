@@ -1,4 +1,4 @@
-#include "nitrocoro/redis/Result.h"
+#include "nitrocoro/redis/RedisResult.h"
 
 #include <hiredis/hiredis.h>
 
@@ -8,45 +8,45 @@
 namespace nitrocoro::redis
 {
 
-struct Result::Impl
+struct RedisResult::Impl
 {
-    Result::Type type = Result::Type::Nil;
+    RedisResult::Type type = RedisResult::Type::Nil;
     long long integer = 0;
     std::string str;
-    std::vector<Result> elements;
+    std::vector<RedisResult> elements;
 };
 
-Result::Result()
+RedisResult::RedisResult()
     : impl_(std::make_shared<Impl>()) {}
 
-Result::~Result() = default;
+RedisResult::~RedisResult() = default;
 
-Result::Result(const Result &) = default;
+RedisResult::RedisResult(const RedisResult &) = default;
 
-Result::Result(Result &&) noexcept = default;
+RedisResult::RedisResult(RedisResult &&) noexcept = default;
 
-Result & Result::operator=(const Result &) = default;
+RedisResult & RedisResult::operator=(const RedisResult &) = default;
 
-Result & Result::operator=(Result &&) noexcept = default;
+RedisResult & RedisResult::operator=(RedisResult &&) noexcept = default;
 
-Result::Result(std::shared_ptr<Impl> impl)
+RedisResult::RedisResult(std::shared_ptr<Impl> impl)
     : impl_(std::move(impl)) {}
 
-Result::Type Result::type() const { return impl_->type; }
+RedisResult::Type RedisResult::type() const { return impl_->type; }
 
-bool Result::isString() const { return impl_->type == Type::String; }
+bool RedisResult::isString() const { return impl_->type == Type::String; }
 
-bool Result::isStatus() const { return impl_->type == Type::Status; }
+bool RedisResult::isStatus() const { return impl_->type == Type::Status; }
 
-bool Result::isError() const { return impl_->type == Type::Error; }
+bool RedisResult::isError() const { return impl_->type == Type::Error; }
 
-bool Result::isInteger() const { return impl_->type == Type::Integer; }
+bool RedisResult::isInteger() const { return impl_->type == Type::Integer; }
 
-bool Result::isArray() const { return impl_->type == Type::Array; }
+bool RedisResult::isArray() const { return impl_->type == Type::Array; }
 
-bool Result::isNil() const { return impl_->type == Type::Nil; }
+bool RedisResult::isNil() const { return impl_->type == Type::Nil; }
 
-std::string_view Result::asString() const
+std::string_view RedisResult::asString() const
 {
     if (impl_->type != Type::String
         && impl_->type != Type::Status
@@ -57,28 +57,28 @@ std::string_view Result::asString() const
     return impl_->str;
 }
 
-long long Result::asInteger() const
+long long RedisResult::asInteger() const
 {
     if (impl_->type != Type::Integer)
         throw std::runtime_error("Not an integer type");
     return impl_->integer;
 }
 
-const std::vector<Result> & Result::asArray() const
+const std::vector<RedisResult> & RedisResult::asArray() const
 {
     if (impl_->type != Type::Array)
         throw std::runtime_error("Not an array type");
     return impl_->elements;
 }
 
-Result Result::fromRaw(const void * rawReply)
+RedisResult RedisResult::fromRaw(const void * rawReply)
 {
     auto * r = static_cast<const redisReply *>(rawReply);
     if (!r)
         throw std::runtime_error("Null reply");
 
     auto impl = std::make_shared<Impl>();
-    impl->type = static_cast<Result::Type>(r->type);
+    impl->type = static_cast<RedisResult::Type>(r->type);
 
     switch (r->type)
     {
@@ -101,7 +101,7 @@ Result Result::fromRaw(const void * rawReply)
             throw std::runtime_error("Unknown reply type");
     }
 
-    return Result(std::move(impl));
+    return RedisResult(std::move(impl));
 }
 
 } // namespace nitrocoro::redis

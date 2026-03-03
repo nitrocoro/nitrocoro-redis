@@ -157,30 +157,30 @@ NITRO_TEST(test_redis_eval_complex)
     co_return;
 }
 
-NITRO_TEST(test_result_interface)
+NITRO_TEST(test_redis_result_interface)
 {
-    NITRO_INFO("Testing Result interface");
+    NITRO_INFO("Testing RedisResult interface");
 
     auto conn = co_await RedisConnection::connect(getHost(), getPort());
 
     // Test type() and copy constructor
     auto statusResult = co_await conn.execute("SET %s %s", "key1", "value1");
-    Result copied(statusResult);
-    NITRO_CHECK(copied.type() == Result::Type::Status);
+    RedisResult copied(statusResult);
+    NITRO_CHECK(copied.type() == RedisResult::Type::Status);
     NITRO_CHECK(copied.isStatus());
 
     // Test copy assignment
-    Result assigned;
+    RedisResult assigned;
     assigned = statusResult;
     NITRO_CHECK(assigned.isStatus());
 
     // Test move constructor
     auto stringResult = co_await conn.execute("GET %s", "key1");
-    Result moved(std::move(stringResult));
+    RedisResult moved(std::move(stringResult));
     NITRO_CHECK(moved.isString());
 
     // Test move assignment
-    Result moveAssigned;
+    RedisResult moveAssigned;
     auto tempResult = co_await conn.execute("GET %s", "key1");
     moveAssigned = std::move(tempResult);
     NITRO_CHECK(moveAssigned.isString());
@@ -188,12 +188,12 @@ NITRO_TEST(test_result_interface)
     // Test isNil
     auto nilResult = co_await conn.execute("GET %s", "nonexistent_key");
     NITRO_CHECK(nilResult.isNil());
-    NITRO_CHECK(nilResult.type() == Result::Type::Nil);
+    NITRO_CHECK(nilResult.type() == RedisResult::Type::Nil);
 
     // Test isError
     auto errorResult = co_await conn.execute("INVALID_COMMAND");
     NITRO_CHECK(errorResult.isError());
-    NITRO_CHECK(errorResult.type() == Result::Type::Error);
+    NITRO_CHECK(errorResult.type() == RedisResult::Type::Error);
 
     // Test asArray with nested elements
     co_await conn.execute("RPUSH %s %s %s %s", "list1", "a", "b", "c");
@@ -209,7 +209,7 @@ NITRO_TEST(test_result_interface)
     co_await conn.execute("DEL %s %s", "key1", "list1");
     co_await conn.disconnect();
 
-    NITRO_INFO("Result interface tests passed");
+    NITRO_INFO("RedisResult interface tests passed");
     co_return;
 }
 

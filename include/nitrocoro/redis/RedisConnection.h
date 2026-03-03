@@ -2,7 +2,7 @@
 
 #include <nitrocoro/core/Scheduler.h>
 #include <nitrocoro/core/Task.h>
-#include <nitrocoro/redis/Result.h>
+#include <nitrocoro/redis/RedisResult.h>
 
 #include <array>
 #include <memory>
@@ -34,14 +34,14 @@ public:
     explicit operator bool() const noexcept;
 
     template <typename... Args>
-    Task<Result> execute(const char * format, Args &&... args)
+    Task<RedisResult> execute(const char * format, Args &&... args)
     {
         auto [cmd, len] = formatCommand(format, std::forward<Args>(args)...);
         co_return co_await executeFormatted(cmd.get(), len);
     }
 
     template <typename... Keys, typename... Args>
-    Task<Result> eval(const std::string & script,
+    Task<RedisResult> eval(const std::string & script,
                       std::tuple<Keys...> keys,
                       std::tuple<Args...> args = {})
     {
@@ -55,7 +55,7 @@ private:
     explicit RedisConnection(std::shared_ptr<ConnectionContext> ctx);
 
     static std::pair<std::unique_ptr<char, void (*)(char *)>, int> formatCommand(const char * format, ...);
-    Task<Result> executeFormatted(const char * cmd, int len);
+    Task<RedisResult> executeFormatted(const char * cmd, int len);
 
     template <size_t N>
     static constexpr auto buildEvalFormat()
@@ -75,7 +75,7 @@ private:
     }
 
     template <typename... Keys, typename... Args, size_t... KeyIdx, size_t... ArgIdx>
-    Task<Result> evalImpl(const std::string & script,
+    Task<RedisResult> evalImpl(const std::string & script,
                           const std::tuple<Keys...> & keys,
                           const std::tuple<Args...> & args,
                           std::index_sequence<KeyIdx...>,

@@ -41,7 +41,7 @@ endif()
 
 add_library(nitrocoro-redis STATIC
     src/RedisConnection.cc
-    src/Result.cc
+    src/RedisResult.cc
     src/RedisPool.cc
 )
 

@@ -9,7 +9,7 @@ namespace nitrocoro::redis
 
 class RedisConnection;
 
-class Result
+class RedisResult
 {
 public:
     enum class Type
@@ -22,12 +22,12 @@ public:
         Error = 6
     };
 
-    Result();
-    ~Result();
-    Result(const Result &);
-    Result(Result &&) noexcept;
-    Result & operator=(const Result &);
-    Result & operator=(Result &&) noexcept;
+    RedisResult();
+    ~RedisResult();
+    RedisResult(const RedisResult &);
+    RedisResult(RedisResult &&) noexcept;
+    RedisResult & operator=(const RedisResult &);
+    RedisResult & operator=(RedisResult &&) noexcept;
 
     Type type() const;
     bool isString() const;
@@ -39,16 +39,16 @@ public:
 
     std::string_view asString() const;
     long long asInteger() const;
-    const std::vector<Result> & asArray() const;
+    const std::vector<RedisResult> & asArray() const;
 
 private:
     friend class RedisConnection;
-    static Result fromRaw(const void * rawReply);
+    static RedisResult fromRaw(const void * rawReply);
 
     struct Impl;
     std::shared_ptr<Impl> impl_;
 
-    explicit Result(std::shared_ptr<Impl> impl);
+    explicit RedisResult(std::shared_ptr<Impl> impl);
 };
 
 } // namespace nitrocoro::redis

@@ -228,7 +228,7 @@ RedisConnection::operator bool() const noexcept
     return ctx_ && ctx_->redisCtx && !ctx_->disconnecting;
 }
 
-Task<Result> RedisConnection::executeFormatted(const char * cmd, int len)
+Task<RedisResult> RedisConnection::executeFormatted(const char * cmd, int len)
 {
     if (!ctx_)
         throw std::runtime_error("RedisConnection is not connected");
@@ -238,10 +238,10 @@ Task<Result> RedisConnection::executeFormatted(const char * cmd, int len)
     // Create callback context
     struct CallbackContext
     {
-        Promise<Result> promise;
+        Promise<RedisResult> promise;
     };
 
-    auto cbCtxPtr = std::make_unique<CallbackContext>(CallbackContext{ Promise<Result>(ctx_->scheduler) });
+    auto cbCtxPtr = std::make_unique<CallbackContext>(CallbackContext{ Promise<RedisResult>(ctx_->scheduler) });
     auto future = cbCtxPtr->promise.get_future();
 
     // Send command
@@ -257,7 +257,7 @@ Task<Result> RedisConnection::executeFormatted(const char * cmd, int len)
             }
             try
             {
-                cbCtx->promise.set_value(Result::fromRaw(r));
+                cbCtx->promise.set_value(RedisResult::fromRaw(r));
             }
             catch (...)
             {

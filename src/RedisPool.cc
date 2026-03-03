@@ -18,7 +18,6 @@ static void returnConnection(const auto & weakState, RedisConnection * conn) noe
     auto state = weakState.lock();
     if (!state)
     {
-        // Pool已销毁，直接删除连接
         delete conn;
         return;
     }
@@ -38,6 +37,20 @@ static void returnConnection(const auto & weakState, RedisConnection * conn) noe
     });
 }
 
+static void detachConnection(const auto & weakState) noexcept
+{
+    auto state = weakState.lock();
+    if (!state)
+    {
+        return;
+    }
+
+    state->scheduler->spawn([state]() -> Task<> {
+        [[maybe_unused]] auto lock = co_await state->mutex.scoped_lock();
+        --state->totalCount;
+    });
+}
+
 RedisPool::RedisPool(size_t maxSize, Factory factory, Scheduler * scheduler)
     : state_(std::make_shared<PoolState>(scheduler, maxSize))
     , factory_(std::move(factory))
@@ -51,7 +64,7 @@ size_t RedisPool::idleCount() const
     return state_->idle.size();
 }
 
-Task<PooledConnectionPtr> RedisPool::acquire()
+Task<PooledConnection> RedisPool::acquire()
 {
     std::unique_ptr<RedisConnection> conn;
     {
@@ -95,12 +108,54 @@ Task<PooledConnectionPtr> RedisPool::acquire()
         }
     }
 
-    co_return PooledConnectionPtr{
-        conn.release(),
-        [weakState = std::weak_ptr<PoolState>(state_)](RedisConnection * ptr) {
-            returnConnection(weakState, ptr);
-        }
-    };
+    co_return PooledConnection{ std::move(conn), std::weak_ptr<PoolState>(state_) };
+}
+
+// PooledConnection implementation
+PooledConnection::PooledConnection(std::unique_ptr<RedisConnection> conn, std::weak_ptr<RedisPool::PoolState> state)
+    : conn_(std::move(conn)), state_(std::move(state))
+{
+}
+
+PooledConnection::~PooledConnection()
+{
+    reset();
+}
+
+PooledConnection::PooledConnection(PooledConnection && other) noexcept
+    : conn_(std::move(other.conn_)), state_(std::move(other.state_))
+{
+}
+
+PooledConnection & PooledConnection::operator=(PooledConnection && other) noexcept
+{
+    if (this != &other)
+    {
+        reset();
+        conn_ = std::move(other.conn_);
+        state_ = std::move(other.state_);
+    }
+    return *this;
+}
+
+void PooledConnection::reset() noexcept
+{
+    if (conn_)
+    {
+        returnConnection(state_, conn_.release());
+        state_.reset();
+    }
+}
+
+std::unique_ptr<RedisConnection> PooledConnection::detach()
+{
+    if (conn_)
+    {
+        detachConnection(state_);
+        state_.reset();
+        return std::move(conn_);
+    }
+    return nullptr;
 }
 
 } // namespace nitrocoro::redis

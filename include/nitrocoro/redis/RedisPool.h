@@ -18,11 +18,12 @@ using nitrocoro::Promise;
 using nitrocoro::Scheduler;
 using nitrocoro::Task;
 
-using PooledConnectionPtr = std::unique_ptr<RedisConnection, std::function<void(RedisConnection *)>>;
+class PooledConnection;
 
 class RedisPool
 {
 public:
+    struct PoolState;
     using Factory = std::function<Task<std::unique_ptr<RedisConnection>>()>;
 
     RedisPool(size_t maxSize, Factory factory, Scheduler * scheduler = Scheduler::current());
@@ -30,13 +31,55 @@ public:
     RedisPool(const RedisPool &) = delete;
     RedisPool & operator=(const RedisPool &) = delete;
 
-    [[nodiscard]] Task<PooledConnectionPtr> acquire();
+    [[nodiscard]] Task<PooledConnection> acquire();
     size_t idleCount() const;
 
 private:
-    struct PoolState;
     std::shared_ptr<PoolState> state_;
     Factory factory_;
+};
+
+class PooledConnection
+{
+public:
+    PooledConnection() = default;
+    ~PooledConnection();
+
+    PooledConnection(const PooledConnection &) = delete;
+    PooledConnection & operator=(const PooledConnection &) = delete;
+    PooledConnection(PooledConnection && other) noexcept;
+    PooledConnection & operator=(PooledConnection && other) noexcept;
+
+    RedisConnection * operator->() const noexcept { return conn_.get(); }
+    RedisConnection & operator*() const noexcept { return *conn_; }
+
+    explicit operator bool() const noexcept { return static_cast<bool>(conn_); }
+
+    /**
+     * @brief Return connection to pool and reset to empty state
+     *
+     * After calling reset(), this PooledConnection becomes empty and the connection
+     * is returned to the pool for reuse by other acquire() calls.
+     */
+    void reset() noexcept;
+
+    /**
+     * @brief Detach connection from pool and transfer ownership to caller
+     *
+     * The connection will no longer be managed by the pool and will not be
+     * automatically returned. The caller is responsible for the connection's lifetime.
+     * This decreases the pool's total connection count.
+     *
+     * @return unique_ptr to the connection, or nullptr if this object is empty
+     */
+    std::unique_ptr<RedisConnection> detach();
+
+private:
+    friend class RedisPool;
+    PooledConnection(std::unique_ptr<RedisConnection> conn, std::weak_ptr<RedisPool::PoolState> state);
+
+    std::unique_ptr<RedisConnection> conn_;
+    std::weak_ptr<RedisPool::PoolState> state_;
 };
 
 } // namespace nitrocoro::redis

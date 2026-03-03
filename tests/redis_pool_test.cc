@@ -15,7 +15,7 @@ static std::string getHost()
 static int getPort()
 {
     const char * env = std::getenv("REDIS_PORT");
-    return env ? std::atoi(env) : 6379;
+    return env ? std::stoi(env) : 6379;
 }
 
 auto factory = []() -> Task<std::unique_ptr<RedisConnection>> {
@@ -29,8 +29,9 @@ NITRO_TEST(test_redis_pool_basic)
     NITRO_INFO("Testing RedisPool basic functionality\n");
 
     RedisPool pool(2, factory);
+    NITRO_CHECK(pool.idleCount() == 0); // Pool starts empty
 
-    // Test acquire connection
+    // Test acquire and basic usage
     auto conn = co_await pool.acquire();
     NITRO_REQUIRE(conn);
 
@@ -42,57 +43,77 @@ NITRO_TEST(test_redis_pool_basic)
     NITRO_INFO("RedisPool basic test passed\n");
 }
 
-NITRO_TEST(test_redis_pool_multiple_connections)
+NITRO_TEST(test_pooled_connection_reset)
 {
-    NITRO_INFO("Testing RedisPool multiple connections\n");
-
-    RedisPool pool(2, factory);
-
-    // Acquire two connections
-    auto conn1 = co_await pool.acquire();
-    auto conn2 = co_await pool.acquire();
-
-    NITRO_REQUIRE(conn1);
-    NITRO_REQUIRE(conn2);
-
-    // Test both work independently
-    auto result1 = co_await conn1->execute("SET %s %s", "key1", "value1");
-    auto result2 = co_await conn2->execute("SET %s %s", "key2", "value2");
-
-    NITRO_CHECK(!result1.isError());
-    NITRO_CHECK(!result2.isError());
-
-    NITRO_INFO("RedisPool multiple connections test passed\n");
-}
-
-NITRO_TEST(test_redis_pool_auto_return)
-{
-    NITRO_INFO("Testing RedisPool automatic connection return\n");
+    NITRO_INFO("Testing PooledConnection reset()\n");
 
     RedisPool pool(1, factory);
 
-    // Acquire and release connection in scope
-    {
-        auto conn = co_await pool.acquire();
-        NITRO_REQUIRE(conn);
-        NITRO_CHECK(pool.idleCount() == 0);
-    } // Connection should auto-return here
-
-    // Wait for async return to complete
-    co_await Scheduler::current()->sleep_for(std::chrono::milliseconds(10));
-
-    // Verify connection was returned
-    NITRO_CHECK(pool.idleCount() == 1);
-
-    // Acquire again should reuse the connection
-    auto conn2 = co_await pool.acquire();
-    NITRO_REQUIRE(conn2);
+    auto conn = co_await pool.acquire();
+    NITRO_REQUIRE(conn);
     NITRO_CHECK(pool.idleCount() == 0);
 
-    NITRO_INFO("RedisPool auto-return test passed\n");
+    // Test reset()
+    conn.reset();
+    NITRO_CHECK(!conn);
+
+    // Wait for async return
+    co_await Scheduler::current()->sleep_for(std::chrono::milliseconds(10));
+    NITRO_CHECK(pool.idleCount() == 1);
+
+    NITRO_INFO("PooledConnection reset test passed\n");
 }
 
-NITRO_TEST(test_redis_pool_max_size_blocking)
+NITRO_TEST(test_pooled_connection_detach)
+{
+    NITRO_INFO("Testing PooledConnection detach()\n");
+
+    RedisPool pool(1, factory);
+
+    auto conn = co_await pool.acquire();
+    NITRO_REQUIRE(conn);
+
+    // Test detach()
+    auto rawConn = conn.detach();
+    NITRO_REQUIRE(rawConn);
+    NITRO_CHECK(!conn);
+
+    // Connection should still work
+    auto result = co_await rawConn->execute("PING");
+    NITRO_CHECK(!result.isError());
+
+    // Wait and verify connection not returned to pool
+    co_await Scheduler::current()->sleep_for(std::chrono::milliseconds(10));
+    NITRO_CHECK(pool.idleCount() == 0);
+
+    NITRO_INFO("PooledConnection detach test passed\n");
+}
+
+NITRO_TEST(test_pooled_connection_move)
+{
+    NITRO_INFO("Testing PooledConnection move semantics\n");
+
+    RedisPool pool(1, factory);
+
+    auto conn1 = co_await pool.acquire();
+    NITRO_REQUIRE(conn1);
+
+    // Test move constructor
+    auto conn2 = std::move(conn1);
+    NITRO_CHECK(!conn1);
+    NITRO_REQUIRE(conn2);
+
+    // Test move assignment
+    PooledConnection conn3;
+    NITRO_CHECK(!conn3);
+    conn3 = std::move(conn2);
+    NITRO_CHECK(!conn2);
+    NITRO_REQUIRE(conn3);
+
+    NITRO_INFO("PooledConnection move test passed\n");
+}
+
+NITRO_TEST(test_redis_pool_max_size)
 {
     NITRO_INFO("Testing RedisPool max size and blocking\n");
 
@@ -101,58 +122,23 @@ NITRO_TEST(test_redis_pool_max_size_blocking)
     auto conn1 = co_await pool.acquire();
     NITRO_REQUIRE(conn1);
 
-    // Start acquiring second connection (should block)
+    // Test blocking behavior
     bool acquired = false;
+    Promise<> acquiredPromise;
     Scheduler::current()->spawn([&]() -> Task<> {
         auto conn2 = co_await pool.acquire();
         acquired = true;
-        co_return;
+        acquiredPromise.set_value();
     });
 
-    // Give some time, should still be blocked
     co_await Scheduler::current()->sleep_for(std::chrono::milliseconds(10));
     NITRO_CHECK(!acquired);
 
-    // Release first connection
+    // Release and verify unblocking
     conn1.reset();
-
-    // Now second acquire should complete
-    co_await Scheduler::current()->sleep_for(std::chrono::milliseconds(10));
+    co_await acquiredPromise.get_future().get();
     NITRO_CHECK(acquired);
-
-    NITRO_INFO("RedisPool blocking test passed\n");
-}
-
-NITRO_TEST(test_redis_pool_shared_ptr_conversion)
-{
-    NITRO_INFO("Testing RedisPool shared_ptr conversion\n");
-
-    RedisPool pool(1, factory);
-
-    std::shared_ptr<RedisConnection> sharedConn;
-    {
-        auto conn = co_await pool.acquire();
-        NITRO_REQUIRE(conn);
-
-        // Convert to shared_ptr
-        sharedConn = std::move(conn);
-        NITRO_REQUIRE(sharedConn);
-        NITRO_CHECK(pool.idleCount() == 0);
-    }
-
-    // Connection should not be returned yet (shared_ptr still holds it)
-    NITRO_CHECK(pool.idleCount() == 0);
-
-    // Release shared_ptr
-    sharedConn.reset();
-
-    // Wait for async return to complete
-    co_await Scheduler::current()->sleep_for(std::chrono::milliseconds(10));
-
-    // Now connection should be returned
-    NITRO_CHECK(pool.idleCount() == 1);
-
-    NITRO_INFO("RedisPool shared_ptr conversion test passed\n");
+    NITRO_INFO("RedisPool max size test passed\n");
 }
 
 NITRO_TEST(test_redis_pool_factory_failure)
@@ -165,43 +151,11 @@ NITRO_TEST(test_redis_pool_factory_failure)
 
     RedisPool pool(1, failingFactory);
 
-    bool exceptionCaught = false;
-    try
-    {
-        auto conn = co_await pool.acquire();
-    }
-    catch (const std::runtime_error &)
-    {
-        exceptionCaught = true;
-    }
-
-    NITRO_CHECK(exceptionCaught);
+    // Test that acquire() throws the expected exception
+    NITRO_CHECK_THROWS_AS(co_await pool.acquire(), std::runtime_error);
     NITRO_CHECK(pool.idleCount() == 0);
 
     NITRO_INFO("RedisPool factory failure test passed\n");
-}
-
-NITRO_TEST(test_redis_pool_lifecycle_safety)
-{
-    NITRO_INFO("Testing RedisPool lifecycle safety\n");
-
-    std::unique_ptr<RedisConnection> survivingConn;
-
-    {
-        RedisPool pool(1, factory);
-        auto conn = co_await pool.acquire();
-        NITRO_REQUIRE(conn);
-
-        // Extract raw connection (simulating pool destruction)
-        survivingConn = std::unique_ptr<RedisConnection>(conn.release());
-    } // Pool destroyed here
-
-    // Connection should still be valid
-    NITRO_REQUIRE(survivingConn);
-    auto result = co_await survivingConn->execute("PING");
-    NITRO_CHECK(!result.isError());
-
-    NITRO_INFO("RedisPool lifecycle safety test passed\n");
 }
 
 int main()

@@ -15,7 +15,7 @@ static std::string getHost()
 static int getPort()
 {
     const char * env = std::getenv("REDIS_PORT");
-    return env ? std::atoi(env) : 6379;
+    return env ? std::stoi(env) : 6379;
 }
 
 NITRO_TEST(test_redis_client)

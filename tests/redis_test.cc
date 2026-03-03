@@ -20,51 +20,51 @@ static int getPort()
 
 NITRO_TEST(test_redis_client)
 {
-    NITRO_INFO("Testing RedisClient\n");
+    NITRO_INFO("Testing RedisClient");
 
     auto conn = co_await RedisConnection::connect(getHost(), getPort());
-    NITRO_INFO("Connected to Redis\n");
+    NITRO_INFO("Connected to Redis");
 
     // Test host() and port() methods
     NITRO_CHECK(conn->host() == getHost());
     NITRO_CHECK(conn->port() == getPort());
-    NITRO_INFO("Connection info: %s:%d\n", conn->host().c_str(), conn->port());
+    NITRO_INFO("Connection info: %s:%d", conn->host().c_str(), conn->port());
 
     // Test SET
     auto setResult = co_await conn->execute("SET %s %s", "test_key", "test_value");
-    NITRO_INFO("SET result: %s\n", std::string(setResult.asString()).c_str());
+    NITRO_INFO("SET result: %s", std::string(setResult.asString()).c_str());
     NITRO_CHECK(setResult.isStatus() && setResult.asString() == "OK");
 
     // Test GET
     auto getResult = co_await conn->execute("GET %s", "test_key");
-    NITRO_INFO("GET result: %s\n", std::string(getResult.asString()).c_str());
+    NITRO_INFO("GET result: %s", std::string(getResult.asString()).c_str());
     NITRO_CHECK(getResult.isString() && getResult.asString() == "test_value");
 
     // Test INCR
     auto incrResult = co_await conn->execute("INCR %s", "counter");
-    NITRO_INFO("INCR result: %lld\n", incrResult.asInteger());
+    NITRO_INFO("INCR result: %lld", incrResult.asInteger());
     NITRO_CHECK(incrResult.isInteger());
 
     // Test DEL
     auto delResult = co_await conn->execute("DEL %s %s", "test_key", "counter");
-    NITRO_INFO("DEL result: %lld\n", delResult.asInteger());
+    NITRO_INFO("DEL result: %lld", delResult.asInteger());
     NITRO_CHECK(delResult.isInteger() && delResult.asInteger() == 2);
 
     // Test disconnect
     co_await conn->disconnect();
-    NITRO_INFO("Disconnected from Redis\n");
+    NITRO_INFO("Disconnected from Redis");
 
-    NITRO_INFO("All tests passed\n");
+    NITRO_INFO("All tests passed");
     co_return;
 }
 
 NITRO_TEST(test_redis_auto_disconnect)
 {
-    NITRO_INFO("Testing auto disconnect\n");
+    NITRO_INFO("Testing auto disconnect");
 
     {
         auto conn = co_await RedisConnection::connect(getHost(), getPort());
-        NITRO_INFO("Connected to Redis\n");
+        NITRO_INFO("Connected to Redis");
 
         auto setResult = co_await conn->execute("SET %s %s", "auto_key", "auto_value");
         NITRO_CHECK(setResult.isStatus() && setResult.asString() == "OK");
@@ -72,24 +72,24 @@ NITRO_TEST(test_redis_auto_disconnect)
         // conn will be destroyed here, triggering auto disconnect
     }
 
-    NITRO_INFO("Auto disconnect test passed\n");
+    NITRO_INFO("Auto disconnect test passed");
     co_return;
 }
 
 NITRO_TEST(test_redis_eval)
 {
-    NITRO_INFO("Testing Redis EVAL\n");
+    NITRO_INFO("Testing Redis EVAL");
 
     auto conn = co_await RedisConnection::connect(getHost(), getPort());
 
     // Test simple eval
     auto result1 = co_await conn->eval("return 'hello'", std::tuple{}, std::tuple{});
-    NITRO_INFO("EVAL result: %s\n", std::string(result1.asString()).c_str());
+    NITRO_INFO("EVAL result: %s", std::string(result1.asString()).c_str());
     NITRO_CHECK(result1.isString() && result1.asString() == "hello");
 
     // Test eval with keys
     auto result2 = co_await conn->eval("return KEYS[1]", std::make_tuple("mykey"), std::tuple{});
-    NITRO_INFO("EVAL with key result: %s\n", std::string(result2.asString()).c_str());
+    NITRO_INFO("EVAL with key result: %s", std::string(result2.asString()).c_str());
     NITRO_CHECK(result2.isString() && result2.asString() == "mykey");
 
     // Test eval with keys and args
@@ -113,13 +113,13 @@ NITRO_TEST(test_redis_eval)
     co_await conn->execute("DEL %s", "eval_key");
     co_await conn->disconnect();
 
-    NITRO_INFO("EVAL tests passed\n");
+    NITRO_INFO("EVAL tests passed");
     co_return;
 }
 
 NITRO_TEST(test_redis_eval_complex)
 {
-    NITRO_INFO("Testing complex Redis EVAL with control flow\n");
+    NITRO_INFO("Testing complex Redis EVAL with control flow");
 
     auto conn = co_await RedisConnection::connect(getHost(), getPort());
 
@@ -148,7 +148,7 @@ NITRO_TEST(test_redis_eval_complex)
         std::make_tuple("3"));
 
     NITRO_CHECK(result.isArray());
-    NITRO_INFO("Complex EVAL with control flow passed\n");
+    NITRO_INFO("Complex EVAL with control flow passed");
 
     // Cleanup
     co_await conn->execute("DEL %s %s", "counter", "threshold");
@@ -159,7 +159,7 @@ NITRO_TEST(test_redis_eval_complex)
 
 NITRO_TEST(test_result_interface)
 {
-    NITRO_INFO("Testing Result interface\n");
+    NITRO_INFO("Testing Result interface");
 
     auto conn = co_await RedisConnection::connect(getHost(), getPort());
 
@@ -209,7 +209,7 @@ NITRO_TEST(test_result_interface)
     co_await conn->execute("DEL %s %s", "key1", "list1");
     co_await conn->disconnect();
 
-    NITRO_INFO("Result interface tests passed\n");
+    NITRO_INFO("Result interface tests passed");
     co_return;
 }
 

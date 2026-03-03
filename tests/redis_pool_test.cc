@@ -24,7 +24,7 @@ auto factory = []() -> Task<std::unique_ptr<RedisConnection>> {
 
 NITRO_TEST(test_redis_pool_basic)
 {
-    NITRO_INFO("Testing RedisPool basic functionality\n");
+    NITRO_INFO("Testing RedisPool basic functionality");
 
     RedisPool pool(2, factory);
     NITRO_CHECK(pool.idleCount() == 0); // Pool starts empty
@@ -38,12 +38,12 @@ NITRO_TEST(test_redis_pool_basic)
     NITRO_CHECK(!result.isError());
     NITRO_CHECK(result.asString() == "PONG");
 
-    NITRO_INFO("RedisPool basic test passed\n");
+    NITRO_INFO("RedisPool basic test passed");
 }
 
 NITRO_TEST(test_pooled_connection_reset)
 {
-    NITRO_INFO("Testing PooledConnection reset()\n");
+    NITRO_INFO("Testing PooledConnection reset()");
 
     RedisPool pool(1, factory);
 
@@ -59,12 +59,12 @@ NITRO_TEST(test_pooled_connection_reset)
     co_await Scheduler::current()->sleep_for(std::chrono::milliseconds(10));
     NITRO_CHECK(pool.idleCount() == 1);
 
-    NITRO_INFO("PooledConnection reset test passed\n");
+    NITRO_INFO("PooledConnection reset test passed");
 }
 
 NITRO_TEST(test_pooled_connection_detach)
 {
-    NITRO_INFO("Testing PooledConnection detach()\n");
+    NITRO_INFO("Testing PooledConnection detach()");
 
     RedisPool pool(1, factory);
 
@@ -84,12 +84,12 @@ NITRO_TEST(test_pooled_connection_detach)
     co_await Scheduler::current()->sleep_for(std::chrono::milliseconds(10));
     NITRO_CHECK(pool.idleCount() == 0);
 
-    NITRO_INFO("PooledConnection detach test passed\n");
+    NITRO_INFO("PooledConnection detach test passed");
 }
 
 NITRO_TEST(test_pooled_connection_move)
 {
-    NITRO_INFO("Testing PooledConnection move semantics\n");
+    NITRO_INFO("Testing PooledConnection move semantics");
 
     RedisPool pool(1, factory);
 
@@ -108,12 +108,12 @@ NITRO_TEST(test_pooled_connection_move)
     NITRO_CHECK(!conn2);
     NITRO_REQUIRE(conn3);
 
-    NITRO_INFO("PooledConnection move test passed\n");
+    NITRO_INFO("PooledConnection move test passed");
 }
 
 NITRO_TEST(test_redis_pool_max_size)
 {
-    NITRO_INFO("Testing RedisPool max size and blocking\n");
+    NITRO_INFO("Testing RedisPool max size and blocking");
 
     RedisPool pool(1, factory);
 
@@ -136,12 +136,12 @@ NITRO_TEST(test_redis_pool_max_size)
     conn1.reset();
     co_await acquiredPromise.get_future().get();
     NITRO_CHECK(acquired);
-    NITRO_INFO("RedisPool max size test passed\n");
+    NITRO_INFO("RedisPool max size test passed");
 }
 
 NITRO_TEST(test_redis_pool_factory_failure)
 {
-    NITRO_INFO("Testing RedisPool factory failure handling\n");
+    NITRO_INFO("Testing RedisPool factory failure handling");
 
     auto failingFactory = []() -> Task<std::unique_ptr<RedisConnection>> {
         throw std::runtime_error("Connection failed");
@@ -153,7 +153,7 @@ NITRO_TEST(test_redis_pool_factory_failure)
     NITRO_CHECK_THROWS_AS(co_await pool.acquire(), std::runtime_error);
     NITRO_CHECK(pool.idleCount() == 0);
 
-    NITRO_INFO("RedisPool factory failure test passed\n");
+    NITRO_INFO("RedisPool factory failure test passed");
 }
 
 int main()

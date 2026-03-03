@@ -45,7 +45,7 @@ struct RedisConnection::ConnectionContext
 
 Task<std::unique_ptr<RedisConnection>> RedisConnection::connect(std::string host, uint16_t port, Scheduler * scheduler)
 {
-    NITRO_TRACE("[Redis] Connecting to %s:%hu\n", host.c_str(), port);
+    NITRO_TRACE("[Redis] Connecting to %s:%hu", host.c_str(), port);
 
     // Step 1: Create async connection
     RedisAsyncContextPtr redisCtxPtr(redisAsyncConnect(host.c_str(), port));
@@ -53,10 +53,10 @@ Task<std::unique_ptr<RedisConnection>> RedisConnection::connect(std::string host
     if (!redisCtx || redisCtx->err)
     {
         std::string err = redisCtx ? redisCtx->errstr : "allocation failed";
-        NITRO_ERROR("[Redis] redisAsyncConnect failed: %s\n", err.c_str());
+        NITRO_ERROR("[Redis] redisAsyncConnect failed: %s", err.c_str());
         throw std::runtime_error("Redis connection failed: " + err);
     }
-    NITRO_TRACE("[Redis] redisAsyncConnect created, fd=%d\n", redisCtx->c.fd);
+    NITRO_TRACE("[Redis] redisAsyncConnect created, fd=%d", redisCtx->c.fd);
 
     // Step 2: Switch to scheduler thread
     co_await scheduler->switch_to();
@@ -93,29 +93,29 @@ Task<std::unique_ptr<RedisConnection>> RedisConnection::connect(std::string host
     // Step 5: Register callbacks
     int ret = redisAsyncSetConnectCallback(redisCtx, [](const redisAsyncContext * c, int status) {
         auto * ctx = static_cast<ConnectionContext *>(c->ev.data);
-        NITRO_TRACE("[Redis] Connect callback: status=%d (%s)\n", status, status == REDIS_OK ? "OK" : "ERROR");
+        NITRO_TRACE("[Redis] Connect callback: status=%d (%s)", status, status == REDIS_OK ? "OK" : "ERROR");
         if (status != REDIS_OK)
         {
-            NITRO_ERROR("[Redis] Connection failed: %s\n", c->errstr);
+            NITRO_ERROR("[Redis] Connection failed: %s", c->errstr);
             // hiredis says that asyncCtx will auto free by hiredis on connect failure
             void * _ = ctx->redisCtx.release();
             ctx->connectPromise->set_exception(std::make_exception_ptr(std::runtime_error(c->errstr)));
         }
         else
         {
-            NITRO_TRACE("[Redis] Connection successful\n");
+            NITRO_TRACE("[Redis] Connection successful");
             ctx->connectPromise->set_value();
         }
     });
     if (ret != REDIS_OK)
     {
-        NITRO_ERROR("[Redis] Failed to set connect callback\n");
+        NITRO_ERROR("[Redis] Failed to set connect callback");
         throw std::runtime_error("Failed to set connect callback");
     }
 
     ret = redisAsyncSetDisconnectCallback(redisCtx, [](const redisAsyncContext * c, int status) {
         auto * ctx = static_cast<ConnectionContext *>(c->ev.data);
-        NITRO_TRACE("[Redis] Disconnect callback: status=%d\n", status);
+        NITRO_TRACE("[Redis] Disconnect callback: status=%d", status);
         ctx->running = false;
 
         if (ctx->channel)
@@ -132,13 +132,13 @@ Task<std::unique_ptr<RedisConnection>> RedisConnection::connect(std::string host
     });
     if (ret != REDIS_OK)
     {
-        NITRO_ERROR("[Redis] Failed to set disconnect callback\n");
+        NITRO_ERROR("[Redis] Failed to set disconnect callback");
         throw std::runtime_error("Failed to set disconnect callback");
     }
 
     // Step 6: Start read/write coroutines
     scheduler->spawn([connCtx]() -> Task<> {
-        NITRO_TRACE("[Redis] Read coroutine started\n");
+        NITRO_TRACE("[Redis] Read coroutine started");
         co_await connCtx->channel->performRead([&](int, IoChannel *) -> IoChannel::IoStatus {
             if (!connCtx->running)
             {
@@ -151,11 +151,11 @@ Task<std::unique_ptr<RedisConnection>> RedisConnection::connect(std::string host
             }
             return IoChannel::IoStatus::NeedRead;
         });
-        NITRO_TRACE("[Redis] Read coroutine finished\n");
+        NITRO_TRACE("[Redis] Read coroutine finished");
     });
 
     scheduler->spawn([connCtx]() -> Task<> {
-        NITRO_TRACE("[Redis] Write coroutine started\n");
+        NITRO_TRACE("[Redis] Write coroutine started");
         co_await connCtx->channel->performWrite([&](int, IoChannel *) -> IoChannel::IoStatus {
             if (!connCtx->running)
             {
@@ -168,13 +168,13 @@ Task<std::unique_ptr<RedisConnection>> RedisConnection::connect(std::string host
             }
             return IoChannel::IoStatus::NeedWrite;
         });
-        NITRO_TRACE("[Redis] Write coroutine finished\n");
+        NITRO_TRACE("[Redis] Write coroutine finished");
     });
 
     // Step 7: Wait for connection to complete
-    NITRO_TRACE("[Redis] Waiting for connection to complete...\n");
+    NITRO_TRACE("[Redis] Waiting for connection to complete...");
     co_await connCtx->connectPromise->get_future().get();
-    NITRO_TRACE("[Redis] Connection completed successfully\n");
+    NITRO_TRACE("[Redis] Connection completed successfully");
     co_return std::unique_ptr<RedisConnection>(new RedisConnection(std::move(connCtx)));
 }
 
@@ -270,11 +270,11 @@ Task<> RedisConnection::disconnect()
     ctx_->disconnectPromise = std::make_unique<Promise<>>(ctx_->scheduler);
     auto future = ctx_->disconnectPromise->get_future();
 
-    NITRO_TRACE("[Redis] Disconnecting...\n");
+    NITRO_TRACE("[Redis] Disconnecting...");
     redisAsyncDisconnect(ctx_->redisCtx.get());
 
     co_await future.get();
-    NITRO_TRACE("[Redis] Disconnected\n");
+    NITRO_TRACE("[Redis] Disconnected");
 }
 
 std::pair<std::unique_ptr<char, void (*)(char *)>, int> RedisConnection::formatCommand(const char * format, ...)

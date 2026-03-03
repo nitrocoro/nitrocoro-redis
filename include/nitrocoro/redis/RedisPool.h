@@ -25,26 +25,18 @@ class RedisPool
 public:
     using Factory = std::function<Task<std::unique_ptr<RedisConnection>>()>;
 
-    RedisPool(size_t maxSize, Factory factory, Scheduler * scheduler = Scheduler::current())
-        : factory_(std::move(factory)), scheduler_(scheduler), maxSize_(maxSize)
-    {
-    }
+    RedisPool(size_t maxSize, Factory factory, Scheduler * scheduler = Scheduler::current());
+    ~RedisPool();
     RedisPool(const RedisPool &) = delete;
     RedisPool & operator=(const RedisPool &) = delete;
 
     [[nodiscard]] Task<PooledConnectionPtr> acquire();
-    size_t idleCount() const { return idle_.size(); }
+    size_t idleCount() const;
 
 private:
-    void returnConnection(RedisConnection * conn) noexcept;
-
+    struct PoolState;
+    std::shared_ptr<PoolState> state_;
     Factory factory_;
-    Scheduler * scheduler_;
-    size_t maxSize_;
-    size_t totalCount_{ 0 };
-    Mutex mutex_;
-    std::queue<std::unique_ptr<RedisConnection>> idle_;
-    std::queue<Promise<std::unique_ptr<RedisConnection>>> waiters_;
 };
 
 } // namespace nitrocoro::redis

@@ -19,9 +19,7 @@ static int getPort()
 }
 
 auto factory = []() -> Task<std::unique_ptr<RedisConnection>> {
-    auto conn = std::make_unique<RedisConnection>(getHost(), getPort());
-    co_await conn->connect();
-    co_return conn;
+    co_return co_await RedisConnection::connect(getHost(), getPort());
 };
 
 NITRO_TEST(test_redis_pool_basic)

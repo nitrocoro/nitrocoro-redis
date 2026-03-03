@@ -16,13 +16,16 @@ namespace nitrocoro::redis
 class RedisConnection
 {
 public:
-    RedisConnection(std::string host, int port, Scheduler * scheduler = Scheduler::current());
+    static Task<std::unique_ptr<RedisConnection>> connect(std::string host, uint16_t port, Scheduler * scheduler = Scheduler::current());
+
     ~RedisConnection();
     RedisConnection(const RedisConnection &) = delete;
     RedisConnection & operator=(const RedisConnection &) = delete;
 
-    Task<> connect();
     Task<> disconnect();
+
+    const std::string & host() const;
+    uint16_t port() const;
 
     template <typename... Args>
     Task<Result> execute(const char * format, Args &&... args)
@@ -42,6 +45,9 @@ public:
     }
 
 private:
+    struct ConnectionContext;
+    explicit RedisConnection(std::shared_ptr<ConnectionContext> ctx);
+
     static std::pair<std::unique_ptr<char, void (*)(char *)>, int> formatCommand(const char * format, ...);
     Task<Result> executeFormatted(const char * cmd, int len);
 
@@ -77,12 +83,7 @@ private:
                                    std::get<KeyIdx>(keys)..., std::get<ArgIdx>(args)...);
     }
 
-    struct IoContext;
-
-    std::string host_;
-    int port_;
-    Scheduler * scheduler_;
-    std::shared_ptr<IoContext> ioCtx_;
+    std::shared_ptr<ConnectionContext> ctx_;
 };
 
 } // namespace nitrocoro::redis

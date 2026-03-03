@@ -43,7 +43,7 @@ struct RedisConnection::ConnectionContext
     std::unique_ptr<Promise<>> disconnectPromise;
 };
 
-Task<std::unique_ptr<RedisConnection>> RedisConnection::connect(std::string host, uint16_t port, Scheduler * scheduler)
+Task<RedisConnection> RedisConnection::connect(std::string host, uint16_t port, Scheduler * scheduler)
 {
     NITRO_TRACE("[Redis] Connecting to %s:%hu", host.c_str(), port);
 
@@ -175,8 +175,10 @@ Task<std::unique_ptr<RedisConnection>> RedisConnection::connect(std::string host
     NITRO_TRACE("[Redis] Waiting for connection to complete...");
     co_await connCtx->connectPromise->get_future().get();
     NITRO_TRACE("[Redis] Connection completed successfully");
-    co_return std::unique_ptr<RedisConnection>(new RedisConnection(std::move(connCtx)));
+    co_return RedisConnection(std::move(connCtx));
 }
+
+RedisConnection::RedisConnection() = default;
 
 RedisConnection::RedisConnection(std::shared_ptr<ConnectionContext> ctx)
     : ctx_(std::move(ctx))
@@ -185,6 +187,8 @@ RedisConnection::RedisConnection(std::shared_ptr<ConnectionContext> ctx)
 
 RedisConnection::~RedisConnection()
 {
+    if (!ctx_)
+        return;
     // Schedule cleanup on scheduler thread
     ctx_->scheduler->dispatch([ctx = std::move(ctx_)]() {
         if (!ctx->running)
@@ -207,16 +211,27 @@ RedisConnection::~RedisConnection()
 
 const std::string & RedisConnection::host() const
 {
+    if (!ctx_)
+        throw std::runtime_error("RedisConnection is not connected");
     return ctx_->host;
 }
 
 uint16_t RedisConnection::port() const
 {
+    if (!ctx_)
+        throw std::runtime_error("RedisConnection is not connected");
     return ctx_->port;
+}
+
+RedisConnection::operator bool() const noexcept
+{
+    return ctx_ && ctx_->redisCtx && !ctx_->disconnecting;
 }
 
 Task<Result> RedisConnection::executeFormatted(const char * cmd, int len)
 {
+    if (!ctx_)
+        throw std::runtime_error("RedisConnection is not connected");
     if (ctx_->disconnecting)
         throw std::runtime_error("Connection is disconnecting");
 
@@ -261,6 +276,8 @@ Task<Result> RedisConnection::executeFormatted(const char * cmd, int len)
 
 Task<> RedisConnection::disconnect()
 {
+    if (!ctx_)
+        co_return;
     co_await ctx_->scheduler->switch_to();
 
     if (ctx_->disconnecting)

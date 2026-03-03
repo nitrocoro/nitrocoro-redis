@@ -18,7 +18,7 @@ static int getPort()
     return env ? std::stoi(env) : 6379;
 }
 
-auto factory = []() -> Task<std::unique_ptr<RedisConnection>> {
+auto factory = []() -> Task<RedisConnection> {
     co_return co_await RedisConnection::connect(getHost(), getPort());
 };
 
@@ -71,14 +71,19 @@ NITRO_TEST(test_pooled_connection_detach)
     auto conn = co_await pool.acquire();
     NITRO_REQUIRE(conn);
 
-    // Test detach()
-    auto rawConn = conn.detach();
+    // Test detach() returns value, not pointer
+    RedisConnection rawConn = conn.detach();
     NITRO_REQUIRE(rawConn);
     NITRO_CHECK(!conn);
 
     // Connection should still work
-    auto result = co_await rawConn->execute("PING");
+    auto result = co_await rawConn.execute("PING");
     NITRO_CHECK(!result.isError());
+
+    // Test that detached connection can be moved
+    RedisConnection movedConn = std::move(rawConn);
+    NITRO_CHECK(!rawConn); // moved-from should be empty
+    NITRO_REQUIRE(movedConn);
 
     // Wait and verify connection not returned to pool
     co_await Scheduler::current()->sleep_for(std::chrono::milliseconds(10));
@@ -143,8 +148,9 @@ NITRO_TEST(test_redis_pool_factory_failure)
 {
     NITRO_INFO("Testing RedisPool factory failure handling");
 
-    auto failingFactory = []() -> Task<std::unique_ptr<RedisConnection>> {
+    auto failingFactory = []() -> Task<RedisConnection> {
         throw std::runtime_error("Connection failed");
+        co_return RedisConnection{}; // unreachable
     };
 
     RedisPool pool(1, failingFactory);
@@ -154,6 +160,20 @@ NITRO_TEST(test_redis_pool_factory_failure)
     NITRO_CHECK(pool.idleCount() == 0);
 
     NITRO_INFO("RedisPool factory failure test passed");
+}
+
+NITRO_TEST(test_pooled_connection_empty_detach)
+{
+    NITRO_INFO("Testing PooledConnection detach() on empty connection");
+
+    // Test detach on default constructed PooledConnection
+    PooledConnection empty;
+    NITRO_CHECK(!empty);
+    NITRO_CHECK_THROWS_AS(empty.detach(), std::runtime_error);
+
+    NITRO_INFO("PooledConnection empty detach test passed");
+
+    co_return;
 }
 
 int main()

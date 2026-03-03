@@ -24,7 +24,7 @@ class RedisPool
 {
 public:
     struct PoolState;
-    using Factory = std::function<Task<std::unique_ptr<RedisConnection>>()>;
+    using Factory = std::function<Task<RedisConnection>()>;
 
     RedisPool(size_t maxSize, Factory factory, Scheduler * scheduler = Scheduler::current());
     ~RedisPool();
@@ -42,7 +42,8 @@ private:
 class PooledConnection
 {
 public:
-    PooledConnection() = default;
+    PooledConnection(std::unique_ptr<RedisConnection> conn, std::weak_ptr<RedisPool::PoolState> state);
+    PooledConnection();
     ~PooledConnection();
 
     PooledConnection(const PooledConnection &) = delete;
@@ -70,14 +71,11 @@ public:
      * automatically returned. The caller is responsible for the connection's lifetime.
      * This decreases the pool's total connection count.
      *
-     * @return unique_ptr to the connection, or nullptr if this object is empty
+     * @return RedisConnection value, or throws if this object is empty
      */
-    std::unique_ptr<RedisConnection> detach();
+    RedisConnection detach();
 
 private:
-    friend class RedisPool;
-    PooledConnection(std::unique_ptr<RedisConnection> conn, std::weak_ptr<RedisPool::PoolState> state);
-
     std::unique_ptr<RedisConnection> conn_;
     std::weak_ptr<RedisPool::PoolState> state_;
 };

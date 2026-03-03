@@ -1,5 +1,7 @@
 #include "nitrocoro/redis/RedisPool.h"
 
+#include <optional>
+
 namespace nitrocoro::redis
 {
 
@@ -9,30 +11,28 @@ struct RedisPool::PoolState
     size_t maxSize;
     size_t totalCount = 0;
     Mutex mutex;
-    std::queue<std::unique_ptr<RedisConnection>> idle;
-    std::queue<Promise<std::unique_ptr<RedisConnection>>> waiters;
+    std::queue<RedisConnection> idle;
+    std::queue<Promise<RedisConnection>> waiters;
 };
 
-static void returnConnection(const auto & weakState, RedisConnection * conn) noexcept
+static void returnConnection(const auto & weakState, RedisConnection conn) noexcept
 {
     auto state = weakState.lock();
     if (!state)
     {
-        delete conn;
         return;
     }
 
-    std::unique_ptr<RedisConnection> connPtr(conn);
-    state->scheduler->spawn([state, connPtr = std::move(connPtr)]() mutable -> Task<> {
+    state->scheduler->spawn([state, conn = std::move(conn)]() mutable -> Task<> {
         [[maybe_unused]] auto lock = co_await state->mutex.scoped_lock();
         if (!state->waiters.empty())
         {
-            state->waiters.front().set_value(std::move(connPtr));
+            state->waiters.front().set_value(std::move(conn));
             state->waiters.pop();
         }
         else
         {
-            state->idle.push(std::move(connPtr));
+            state->idle.push(std::move(conn));
         }
     });
 }
@@ -66,7 +66,7 @@ size_t RedisPool::idleCount() const
 
 Task<PooledConnection> RedisPool::acquire()
 {
-    std::unique_ptr<RedisConnection> conn;
+    std::optional<RedisConnection> conn;
     {
         [[maybe_unused]] auto lock = co_await state_->mutex.scoped_lock();
         if (!state_->idle.empty())
@@ -80,7 +80,7 @@ Task<PooledConnection> RedisPool::acquire()
         }
         else
         {
-            Promise<std::unique_ptr<RedisConnection>> promise(state_->scheduler);
+            Promise<RedisConnection> promise(state_->scheduler);
             auto future = promise.get_future();
             state_->waiters.push(std::move(promise));
             lock.unlock();
@@ -108,7 +108,7 @@ Task<PooledConnection> RedisPool::acquire()
         }
     }
 
-    co_return PooledConnection{ std::move(conn), std::weak_ptr<PoolState>(state_) };
+    co_return PooledConnection{ std::make_unique<RedisConnection>(std::move(*conn)), std::weak_ptr<PoolState>(state_) };
 }
 
 // PooledConnection implementation
@@ -116,6 +116,8 @@ PooledConnection::PooledConnection(std::unique_ptr<RedisConnection> conn, std::w
     : conn_(std::move(conn)), state_(std::move(state))
 {
 }
+
+PooledConnection::PooledConnection() = default;
 
 PooledConnection::~PooledConnection()
 {
@@ -142,20 +144,22 @@ void PooledConnection::reset() noexcept
 {
     if (conn_)
     {
-        returnConnection(state_, conn_.release());
+        returnConnection(state_, std::move(*conn_));
+        conn_.reset();
         state_.reset();
     }
 }
 
-std::unique_ptr<RedisConnection> PooledConnection::detach()
+RedisConnection PooledConnection::detach()
 {
-    if (conn_)
-    {
-        detachConnection(state_);
-        state_.reset();
-        return std::move(conn_);
-    }
-    return nullptr;
+    if (!conn_)
+        throw std::runtime_error("PooledConnection is empty");
+
+    detachConnection(state_);
+    state_.reset();
+    auto result = std::move(*conn_);
+    conn_.reset();
+    return result;
 }
 
 } // namespace nitrocoro::redis

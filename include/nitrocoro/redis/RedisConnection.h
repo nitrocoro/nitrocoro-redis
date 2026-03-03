@@ -16,17 +16,22 @@ namespace nitrocoro::redis
 class RedisConnection
 {
 public:
-    static Task<std::unique_ptr<RedisConnection>> connect(std::string host, uint16_t port, Scheduler * scheduler = Scheduler::current());
+    static Task<RedisConnection> connect(std::string host, uint16_t port, Scheduler * scheduler = Scheduler::current());
 
+    RedisConnection();
     ~RedisConnection();
     RedisConnection(const RedisConnection &) = delete;
     RedisConnection & operator=(const RedisConnection &) = delete;
+    RedisConnection(RedisConnection &&) = default;
+    RedisConnection & operator=(RedisConnection &&) = default;
 
     // TODO: how to inform and handle broken connection?
     Task<> disconnect();
 
     const std::string & host() const;
     uint16_t port() const;
+
+    explicit operator bool() const noexcept;
 
     template <typename... Args>
     Task<Result> execute(const char * format, Args &&... args)

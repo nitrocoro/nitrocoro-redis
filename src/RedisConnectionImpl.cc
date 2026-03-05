@@ -1,12 +1,6 @@
-#include "nitrocoro/redis/RedisConnection.h"
+#include "RedisConnectionImpl.h"
 
-#include <nitrocoro/core/Future.h>
-#include <nitrocoro/core/Scheduler.h>
-#include <nitrocoro/core/Types.h>
-#include <nitrocoro/io/IoChannel.h>
 #include <nitrocoro/utils/Debug.h>
-
-#include <hiredis/async.h>
 
 #include <stdexcept>
 
@@ -24,31 +18,7 @@ namespace detail
 RedisResult redisReplayToRedisResultImpl(const redisReply * r);
 }
 
-struct RedisAsyncDeleter
-{
-    void operator()(redisAsyncContext * ctx) const
-    {
-        if (ctx)
-            redisAsyncFree(ctx);
-    }
-};
-
-using RedisAsyncContextPtr = std::unique_ptr<redisAsyncContext, RedisAsyncDeleter>;
-
-struct RedisConnection::ConnectionContext
-{
-    RedisAsyncContextPtr redisCtx;
-    std::unique_ptr<IoChannel> channel;
-    std::string host;
-    uint16_t port;
-    Scheduler * scheduler;
-    bool running{ true };
-    bool disconnecting{ false };
-    std::unique_ptr<Promise<>> connectPromise;
-    std::unique_ptr<Promise<>> disconnectPromise;
-};
-
-Task<RedisConnection> RedisConnection::connect(std::string host, uint16_t port, Scheduler * scheduler)
+Task<std::unique_ptr<RedisConnection>> RedisConnection::connect(std::string host, uint16_t port, Scheduler * scheduler)
 {
     NITRO_TRACE("[Redis] Connecting to %s:%hu", host.c_str(), port);
 
@@ -102,7 +72,6 @@ Task<RedisConnection> RedisConnection::connect(std::string host, uint16_t port, 
         if (status != REDIS_OK)
         {
             NITRO_ERROR("[Redis] Connection failed: %s", c->errstr);
-            // hiredis says that asyncCtx will auto free by hiredis on connect failure
             void * _ = ctx->redisCtx.release();
             ctx->connectPromise->set_exception(std::make_exception_ptr(std::runtime_error(c->errstr)));
         }
@@ -129,7 +98,6 @@ Task<RedisConnection> RedisConnection::connect(std::string host, uint16_t port, 
             ctx->channel->cancelAll();
         }
 
-        // hiredis says that asyncCtx will auto free by hiredis on disconnect
         void * _ = ctx->redisCtx.release();
 
         if (ctx->disconnectPromise)
@@ -180,21 +148,36 @@ Task<RedisConnection> RedisConnection::connect(std::string host, uint16_t port, 
     NITRO_TRACE("[Redis] Waiting for connection to complete...");
     co_await connCtx->connectPromise->get_future().get();
     NITRO_TRACE("[Redis] Connection completed successfully");
-    co_return RedisConnection(std::move(connCtx));
+    co_return std::make_unique<RedisConnectionImpl>(std::move(connCtx));
 }
 
-RedisConnection::RedisConnection() = default;
+std::pair<std::unique_ptr<char, void (*)(char *)>, int> RedisConnection::formatCommand(const char * format, ...)
+{
+    va_list ap;
+    va_start(ap, format);
 
-RedisConnection::RedisConnection(std::shared_ptr<ConnectionContext> ctx)
+    char * rawCmd = nullptr;
+    int len = redisvFormatCommand(&rawCmd, format, ap);
+
+    va_end(ap);
+
+    if (len == -2)
+        throw std::runtime_error("Invalid format string");
+    if (len < 0)
+        throw std::runtime_error("Failed to format command");
+
+    return { std::unique_ptr<char, void (*)(char *)>(rawCmd, redisFreeCommand), len };
+}
+
+RedisConnectionImpl::RedisConnectionImpl(std::shared_ptr<ConnectionContext> ctx)
     : ctx_(std::move(ctx))
 {
 }
 
-RedisConnection::~RedisConnection()
+RedisConnectionImpl::~RedisConnectionImpl()
 {
     if (!ctx_)
         return;
-    // Schedule cleanup on scheduler thread
     ctx_->scheduler->dispatch([ctx = std::move(ctx_)]() {
         if (!ctx->running)
             return;
@@ -214,33 +197,32 @@ RedisConnection::~RedisConnection()
     });
 }
 
-const std::string & RedisConnection::host() const
+const std::string & RedisConnectionImpl::host() const
 {
     if (!ctx_)
         throw std::runtime_error("RedisConnection is not connected");
     return ctx_->host;
 }
 
-uint16_t RedisConnection::port() const
+uint16_t RedisConnectionImpl::port() const
 {
     if (!ctx_)
         throw std::runtime_error("RedisConnection is not connected");
     return ctx_->port;
 }
 
-RedisConnection::operator bool() const noexcept
+bool RedisConnectionImpl::isAlive() const
 {
-    return ctx_ && ctx_->redisCtx && !ctx_->disconnecting;
+    return ctx_ && ctx_->running && !ctx_->disconnecting;
 }
 
-Task<RedisResult> RedisConnection::executeFormatted(const char * cmd, int len)
+Task<RedisResult> RedisConnectionImpl::executeFormatted(const char * cmd, int len)
 {
     if (!ctx_)
         throw std::runtime_error("RedisConnection is not connected");
     if (ctx_->disconnecting)
         throw std::runtime_error("Connection is disconnecting");
 
-    // Create callback context
     struct CallbackContext
     {
         Promise<RedisResult> promise;
@@ -249,7 +231,6 @@ Task<RedisResult> RedisConnection::executeFormatted(const char * cmd, int len)
     auto cbCtxPtr = std::make_unique<CallbackContext>(CallbackContext{ Promise<RedisResult>(ctx_->scheduler) });
     auto future = cbCtxPtr->promise.get_future();
 
-    // Send command
     int ret = redisAsyncFormattedCommand(
         ctx_->redisCtx.get(),
         [](redisAsyncContext *, void * reply, void * privdata) {
@@ -277,44 +258,6 @@ Task<RedisResult> RedisConnection::executeFormatted(const char * cmd, int len)
         throw std::runtime_error("Failed to send command");
 
     co_return co_await future.get();
-}
-
-Task<> RedisConnection::disconnect()
-{
-    if (!ctx_)
-        co_return;
-    co_await ctx_->scheduler->switch_to();
-
-    if (ctx_->disconnecting)
-        co_return;
-    ctx_->disconnecting = true;
-
-    ctx_->disconnectPromise = std::make_unique<Promise<>>(ctx_->scheduler);
-    auto future = ctx_->disconnectPromise->get_future();
-
-    NITRO_TRACE("[Redis] Disconnecting...");
-    redisAsyncDisconnect(ctx_->redisCtx.get());
-
-    co_await future.get();
-    NITRO_TRACE("[Redis] Disconnected");
-}
-
-std::pair<std::unique_ptr<char, void (*)(char *)>, int> RedisConnection::formatCommand(const char * format, ...)
-{
-    va_list ap;
-    va_start(ap, format);
-
-    char * rawCmd = nullptr;
-    int len = redisvFormatCommand(&rawCmd, format, ap);
-
-    va_end(ap);
-
-    if (len == -2)
-        throw std::runtime_error("Invalid format string");
-    if (len < 0)
-        throw std::runtime_error("Failed to format command");
-
-    return { std::unique_ptr<char, void (*)(char *)>(rawCmd, redisFreeCommand), len };
 }
 
 } // namespace nitrocoro::redis

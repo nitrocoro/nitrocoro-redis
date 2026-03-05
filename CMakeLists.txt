@@ -40,9 +40,11 @@ else ()
 endif ()
 
 add_library(nitrocoro-redis STATIC
-    src/RedisConnection.cc
+    src/RedisConnectionImpl.cc
     src/RedisResult.cc
     src/RedisPool.cc
+    src/PoolState.cc
+    src/PooledConnection.cc
 )
 
 target_include_directories(nitrocoro-redis PUBLIC

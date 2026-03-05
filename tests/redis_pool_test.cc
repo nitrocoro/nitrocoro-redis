@@ -18,7 +18,7 @@ static int getPort()
     return env ? std::stoi(env) : 6379;
 }
 
-auto factory = []() -> Task<RedisConnection> {
+auto factory = []() -> Task<std::unique_ptr<RedisConnection>> {
     co_return co_await RedisConnection::connect(getHost(), getPort());
 };
 
@@ -32,6 +32,7 @@ NITRO_TEST(test_redis_pool_basic)
     // Test acquire and basic usage
     auto conn = co_await pool.acquire();
     NITRO_REQUIRE(conn);
+    NITRO_CHECK(conn->isAlive());
 
     // Test connection works
     auto result = co_await conn->execute("PING");
@@ -41,80 +42,27 @@ NITRO_TEST(test_redis_pool_basic)
     NITRO_INFO("RedisPool basic test passed");
 }
 
-NITRO_TEST(test_pooled_connection_reset)
+NITRO_TEST(test_pooled_connection_auto_return)
 {
-    NITRO_INFO("Testing PooledConnection reset()");
+    NITRO_INFO("Testing PooledConnection auto return");
 
     RedisPool pool(1, factory);
 
-    auto conn = co_await pool.acquire();
-    NITRO_REQUIRE(conn);
-    NITRO_CHECK(pool.idleCount() == 0);
-
-    // Test reset()
-    conn.reset();
-    NITRO_CHECK(!conn);
+    {
+        auto conn = co_await pool.acquire();
+        NITRO_REQUIRE(conn);
+        NITRO_CHECK(conn->isAlive());
+        NITRO_CHECK(pool.idleCount() == 0);
+        // conn destroyed here, auto returned
+    }
 
     // Wait for async return
     co_await Scheduler::current()->sleep_for(std::chrono::milliseconds(10));
     NITRO_CHECK(pool.idleCount() == 1);
 
-    NITRO_INFO("PooledConnection reset test passed");
+    NITRO_INFO("PooledConnection auto return test passed");
 }
 
-NITRO_TEST(test_pooled_connection_detach)
-{
-    NITRO_INFO("Testing PooledConnection detach()");
-
-    RedisPool pool(1, factory);
-
-    auto conn = co_await pool.acquire();
-    NITRO_REQUIRE(conn);
-
-    // Test detach() returns value, not pointer
-    RedisConnection rawConn = conn.detach();
-    NITRO_REQUIRE(rawConn);
-    NITRO_CHECK(!conn);
-
-    // Connection should still work
-    auto result = co_await rawConn.execute("PING");
-    NITRO_CHECK(!result.isError());
-
-    // Test that detached connection can be moved
-    RedisConnection movedConn = std::move(rawConn);
-    NITRO_CHECK(!rawConn); // moved-from should be empty
-    NITRO_REQUIRE(movedConn);
-
-    // Wait and verify connection not returned to pool
-    co_await Scheduler::current()->sleep_for(std::chrono::milliseconds(10));
-    NITRO_CHECK(pool.idleCount() == 0);
-
-    NITRO_INFO("PooledConnection detach test passed");
-}
-
-NITRO_TEST(test_pooled_connection_move)
-{
-    NITRO_INFO("Testing PooledConnection move semantics");
-
-    RedisPool pool(1, factory);
-
-    auto conn1 = co_await pool.acquire();
-    NITRO_REQUIRE(conn1);
-
-    // Test move constructor
-    auto conn2 = std::move(conn1);
-    NITRO_CHECK(!conn1);
-    NITRO_REQUIRE(conn2);
-
-    // Test move assignment
-    PooledConnection conn3;
-    NITRO_CHECK(!conn3);
-    conn3 = std::move(conn2);
-    NITRO_CHECK(!conn2);
-    NITRO_REQUIRE(conn3);
-
-    NITRO_INFO("PooledConnection move test passed");
-}
 
 NITRO_TEST(test_redis_pool_max_size)
 {
@@ -148,9 +96,9 @@ NITRO_TEST(test_redis_pool_factory_failure)
 {
     NITRO_INFO("Testing RedisPool factory failure handling");
 
-    auto failingFactory = []() -> Task<RedisConnection> {
+    auto failingFactory = []() -> Task<std::unique_ptr<RedisConnection>> {
         throw std::runtime_error("Connection failed");
-        co_return RedisConnection{}; // unreachable
+        co_return nullptr; // unreachable
     };
 
     RedisPool pool(1, failingFactory);
@@ -162,18 +110,28 @@ NITRO_TEST(test_redis_pool_factory_failure)
     NITRO_INFO("RedisPool factory failure test passed");
 }
 
-NITRO_TEST(test_pooled_connection_empty_detach)
+NITRO_TEST(test_pooled_connection_is_alive)
 {
-    NITRO_INFO("Testing PooledConnection detach() on empty connection");
+    NITRO_INFO("Testing PooledConnection isAlive()");
 
-    // Test detach on default constructed PooledConnection
-    PooledConnection empty;
-    NITRO_CHECK(!empty);
-    NITRO_CHECK_THROWS_AS(empty.detach(), std::runtime_error);
+    RedisPool pool(1, factory);
 
-    NITRO_INFO("PooledConnection empty detach test passed");
+    auto conn = co_await pool.acquire();
+    NITRO_REQUIRE(conn);
+    NITRO_CHECK(conn->isAlive());
 
-    co_return;
+    // Test connection still alive after operations
+    auto result = co_await conn->execute("SET %s %s", "alive_key", "alive_value");
+    NITRO_CHECK(conn->isAlive());
+
+    result = co_await conn->execute("GET %s", "alive_key");
+    NITRO_CHECK(conn->isAlive());
+    NITRO_CHECK(result.asString() == "alive_value");
+
+    // Cleanup
+    co_await conn->execute("DEL %s", "alive_key");
+
+    NITRO_INFO("PooledConnection isAlive test passed");
 }
 
 int main()

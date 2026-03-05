@@ -16,22 +16,15 @@ namespace nitrocoro::redis
 class RedisConnection
 {
 public:
-    static Task<RedisConnection> connect(std::string host, uint16_t port, Scheduler * scheduler = Scheduler::current());
+    static Task<std::unique_ptr<RedisConnection>> connect(std::string host, uint16_t port, Scheduler * scheduler = Scheduler::current());
 
-    RedisConnection();
-    ~RedisConnection();
+    virtual ~RedisConnection() = default;
     RedisConnection(const RedisConnection &) = delete;
     RedisConnection & operator=(const RedisConnection &) = delete;
-    RedisConnection(RedisConnection &&) = default;
-    RedisConnection & operator=(RedisConnection &&) = default;
 
-    // TODO: how to inform and handle broken connection?
-    Task<> disconnect();
-
-    const std::string & host() const;
-    uint16_t port() const;
-
-    explicit operator bool() const noexcept;
+    virtual const std::string & host() const = 0;
+    virtual uint16_t port() const = 0;
+    virtual bool isAlive() const = 0;
 
     template <typename... Args>
     Task<RedisResult> execute(const char * format, Args &&... args)
@@ -42,21 +35,22 @@ public:
 
     template <typename... Keys, typename... Args>
     Task<RedisResult> eval(const std::string & script,
-                      std::tuple<Keys...> keys,
-                      std::tuple<Args...> args = {})
+                           std::tuple<Keys...> keys,
+                           std::tuple<Args...> args = {})
     {
         co_return co_await evalImpl(script, keys, args,
                                     std::index_sequence_for<Keys...>{},
                                     std::index_sequence_for<Args...>{});
     }
 
-private:
-    struct ConnectionContext;
-    explicit RedisConnection(std::shared_ptr<ConnectionContext> ctx);
+protected:
+    RedisConnection() = default;
+
+    virtual Task<RedisResult> executeFormatted(const char * cmd, int len) = 0;
 
     static std::pair<std::unique_ptr<char, void (*)(char *)>, int> formatCommand(const char * format, ...);
-    Task<RedisResult> executeFormatted(const char * cmd, int len);
 
+private:
     template <size_t N>
     static constexpr auto buildEvalFormat()
     {
@@ -76,10 +70,10 @@ private:
 
     template <typename... Keys, typename... Args, size_t... KeyIdx, size_t... ArgIdx>
     Task<RedisResult> evalImpl(const std::string & script,
-                          const std::tuple<Keys...> & keys,
-                          const std::tuple<Args...> & args,
-                          std::index_sequence<KeyIdx...>,
-                          std::index_sequence<ArgIdx...>)
+                               const std::tuple<Keys...> & keys,
+                               const std::tuple<Args...> & args,
+                               std::index_sequence<KeyIdx...>,
+                               std::index_sequence<ArgIdx...>)
     {
         constexpr size_t numKeys = sizeof...(Keys);
         constexpr size_t numArgs = sizeof...(Args);
@@ -88,8 +82,6 @@ private:
         co_return co_await execute(fmt.data(), script.c_str(), static_cast<int>(numKeys),
                                    std::get<KeyIdx>(keys)..., std::get<ArgIdx>(args)...);
     }
-
-    std::shared_ptr<ConnectionContext> ctx_;
 };
 
 } // namespace nitrocoro::redis

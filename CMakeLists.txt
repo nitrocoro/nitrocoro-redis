@@ -48,10 +48,43 @@ add_library(nitrocoro-redis STATIC
 )
 
 target_include_directories(nitrocoro-redis PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
 )
 
 target_link_libraries(nitrocoro-redis PUBLIC nitrocoro hiredis)
+
+# Installation
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
+install(TARGETS nitrocoro-redis
+    EXPORT nitrocoro-redisTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)
+
+install(DIRECTORY include/nitrocoro
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    FILES_MATCHING PATTERN "*.h"
+)
+
+install(EXPORT nitrocoro-redisTargets
+    FILE nitrocoro-redisTargets.cmake
+    NAMESPACE nitrocoro::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/nitrocoro-redis
+)
+
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/nitrocoro-redisConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/nitrocoro-redisConfig.cmake
+    @ONLY
+)
+
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/nitrocoro-redisConfig.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/nitrocoro-redis
+)
 
 option(BUILD_TESTING "Build tests" ON)
 

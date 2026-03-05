@@ -1,3 +1,7 @@
+/**
+ * @file PooledConnection.cc
+ * @brief Implementation of pooled connection with RAII semantics
+ */
 #include "PooledConnection.h"
 #include "RedisConnectionImpl.h"
 #include "PoolState.h"

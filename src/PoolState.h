@@ -1,3 +1,7 @@
+/**
+ * @file PoolState.h
+ * @brief Internal state management for connection pool
+ */
 #pragma once
 
 #include <nitrocoro/core/Future.h>

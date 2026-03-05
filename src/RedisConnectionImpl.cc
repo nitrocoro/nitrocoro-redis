@@ -1,3 +1,7 @@
+/**
+ * @file RedisConnectionImpl.cc
+ * @brief Implementation of Redis connection with hiredis integration
+ */
 #include "RedisConnectionImpl.h"
 
 #include <nitrocoro/utils/Debug.h>

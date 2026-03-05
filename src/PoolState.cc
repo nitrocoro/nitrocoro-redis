@@ -1,3 +1,7 @@
+/**
+ * @file PoolState.cc
+ * @brief Implementation of connection pool state management
+ */
 #include "PoolState.h"
 #include "RedisConnectionImpl.h"
 

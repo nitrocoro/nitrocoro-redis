@@ -1,4 +1,9 @@
-#include "nitrocoro/redis/RedisPool.h"
+/**
+ * @file RedisPool.cc
+ * @brief Implementation of Redis connection pool
+ */
+#include <nitrocoro/redis/RedisPool.h>
+
 #include "PoolState.h"
 #include "PooledConnection.h"
 #include "RedisConnectionImpl.h"

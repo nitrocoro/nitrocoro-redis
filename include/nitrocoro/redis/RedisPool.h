@@ -1,3 +1,7 @@
+/**
+ * @file RedisPool.h
+ * @brief Redis connection pool for efficient connection reuse
+ */
 #pragma once
 
 #include <nitrocoro/core/Scheduler.h>

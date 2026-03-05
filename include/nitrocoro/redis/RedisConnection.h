@@ -1,3 +1,7 @@
+/**
+ * @file RedisConnection.h
+ * @brief Redis connection interface with coroutine support
+ */
 #pragma once
 
 #include <nitrocoro/core/Scheduler.h>
@@ -45,10 +49,9 @@ public:
 
 protected:
     RedisConnection() = default;
+    static std::pair<std::unique_ptr<char, void (*)(char *)>, int> formatCommand(const char * format, ...);
 
     virtual Task<RedisResult> executeFormatted(const char * cmd, int len) = 0;
-
-    static std::pair<std::unique_ptr<char, void (*)(char *)>, int> formatCommand(const char * format, ...);
 
 private:
     template <size_t N>

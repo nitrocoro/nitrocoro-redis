@@ -1,3 +1,7 @@
+/**
+ * @file PooledConnection.h
+ * @brief Connection wrapper with automatic pool return
+ */
 #pragma once
 
 #include <nitrocoro/redis/RedisConnection.h>

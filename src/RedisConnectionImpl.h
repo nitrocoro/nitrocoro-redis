@@ -1,3 +1,7 @@
+/**
+ * @file RedisConnectionImpl.h
+ * @brief Internal implementation of Redis connection
+ */
 #pragma once
 
 #include <nitrocoro/core/Future.h>

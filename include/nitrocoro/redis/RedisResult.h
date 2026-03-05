@@ -1,3 +1,7 @@
+/**
+ * @file RedisResult.h
+ * @brief Redis command result wrapper
+ */
 #pragma once
 
 #include <memory>

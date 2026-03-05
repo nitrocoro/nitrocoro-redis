@@ -1,4 +1,8 @@
-#include "nitrocoro/redis/RedisResult.h"
+/**
+ * @file RedisResult.cc
+ * @brief Implementation of Redis result conversion from hiredis
+ */
+#include <nitrocoro/redis/RedisResult.h>
 
 #include <hiredis/hiredis.h>
 

@@ -5,7 +5,7 @@
 #pragma once
 
 #include <nitrocoro/core/Future.h>
-#include <nitrocoro/io/IoChannel.h>
+#include <nitrocoro/io/Channel.h>
 #include <nitrocoro/redis/RedisConnection.h>
 
 #include <hiredis/async.h>
@@ -29,7 +29,7 @@ using RedisAsyncContextPtr = std::unique_ptr<redisAsyncContext, RedisAsyncDelete
 struct ConnectionContext
 {
     RedisAsyncContextPtr redisCtx;
-    std::unique_ptr<io::IoChannel> channel;
+    std::unique_ptr<io::Channel> channel;
     std::string host;
     uint16_t port;
     Scheduler * scheduler;

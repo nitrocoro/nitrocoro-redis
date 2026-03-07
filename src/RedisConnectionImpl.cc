@@ -15,7 +15,7 @@ using nitrocoro::Promise;
 using nitrocoro::Scheduler;
 using nitrocoro::Task;
 using nitrocoro::TriggerMode;
-using nitrocoro::io::IoChannel;
+using nitrocoro::io::Channel;
 
 namespace detail
 {
@@ -41,7 +41,7 @@ Task<std::unique_ptr<RedisConnection>> RedisConnection::connect(std::string host
     co_await scheduler->switch_to();
 
     // Step 3: Create IO context with all resources
-    auto channel = std::make_unique<IoChannel>(redisCtx->c.fd, TriggerMode::LevelTriggered, scheduler);
+    auto channel = std::make_unique<Channel>(redisCtx->c.fd, TriggerMode::LevelTriggered, scheduler);
     auto connCtx = std::make_shared<ConnectionContext>(ConnectionContext{
         .redisCtx = std::move(redisCtxPtr),
         .channel = std::move(channel),
@@ -116,34 +116,34 @@ Task<std::unique_ptr<RedisConnection>> RedisConnection::connect(std::string host
     // Step 6: Start read/write coroutines
     scheduler->spawn([connCtx]() -> Task<> {
         NITRO_TRACE("[Redis] Read coroutine started");
-        co_await connCtx->channel->performRead([&](int, IoChannel *) -> IoChannel::IoStatus {
+        co_await connCtx->channel->performRead([&](int, Channel *) -> Channel::IoStatus {
             if (!connCtx->running)
             {
-                return IoChannel::IoStatus::Success;
+                return Channel::IoStatus::Success;
             }
             redisAsyncHandleRead(connCtx->redisCtx.get());
             if (!connCtx->running)
             {
-                return IoChannel::IoStatus::Success;
+                return Channel::IoStatus::Success;
             }
-            return IoChannel::IoStatus::NeedRead;
+            return Channel::IoStatus::NeedRead;
         });
         NITRO_TRACE("[Redis] Read coroutine finished");
     });
 
     scheduler->spawn([connCtx]() -> Task<> {
         NITRO_TRACE("[Redis] Write coroutine started");
-        co_await connCtx->channel->performWrite([&](int, IoChannel *) -> IoChannel::IoStatus {
+        co_await connCtx->channel->performWrite([&](int, Channel *) -> Channel::IoStatus {
             if (!connCtx->running)
             {
-                return IoChannel::IoStatus::Success;
+                return Channel::IoStatus::Success;
             }
             redisAsyncHandleWrite(connCtx->redisCtx.get());
             if (!connCtx->running)
             {
-                return IoChannel::IoStatus::Success;
+                return Channel::IoStatus::Success;
             }
-            return IoChannel::IoStatus::NeedWrite;
+            return Channel::IoStatus::NeedWrite;
         });
         NITRO_TRACE("[Redis] Write coroutine finished");
     });

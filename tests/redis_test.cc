@@ -18,19 +18,6 @@ static int getPort()
     return env ? std::stoi(env) : 6379;
 }
 
-NITRO_TEST(tt)
-{
-    auto conn = co_await RedisConnection::connect(getHost(), getPort());
-    NITRO_INFO("Connected to Redis");
-
-    while (true)
-    {
-        auto result = co_await conn->execute("PING");
-        NITRO_INFO("PING result: %s", std::string(result.asString()).c_str());
-        co_await Scheduler::current()->sleep_for(std::chrono::seconds(1));
-    }
-}
-
 NITRO_TEST(test_redis_client)
 {
     NITRO_INFO("Testing RedisClient");
@@ -272,6 +259,26 @@ NITRO_TEST(test_redis_error_handling)
 
     NITRO_INFO("Redis error handling test passed");
     co_return;
+}
+
+NITRO_TEST(test_connection_interrupted)
+{
+    auto killer = co_await RedisConnection::connect(getHost(), getPort());
+
+    for (int i = 0; i < 5; ++i)
+    {
+        auto conn = co_await RedisConnection::connect(getHost(), getPort());
+
+        auto idResult = co_await conn->execute("CLIENT ID");
+        NITRO_REQUIRE(idResult.isInteger());
+
+        co_await killer->execute("CLIENT KILL ID %lld", idResult.asInteger());
+        co_await Scheduler::current()->sleep_for(std::chrono::milliseconds(100));
+
+        NITRO_CHECK(!conn->isAlive());
+        NITRO_CHECK_THROWS(co_await conn->execute("PING"));
+        NITRO_INFO("Iteration %d passed", i + 1);
+    }
 }
 
 int main(int argc, char ** argv)

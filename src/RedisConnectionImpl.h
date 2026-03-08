@@ -5,7 +5,6 @@
 #pragma once
 
 #include <nitrocoro/core/Future.h>
-#include <nitrocoro/io/Channel.h>
 #include <nitrocoro/redis/RedisConnection.h>
 
 #include <hiredis/async.h>

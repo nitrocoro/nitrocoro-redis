@@ -22,6 +22,24 @@ namespace detail
 RedisResult redisReplayToRedisResultImpl(const redisReply * r);
 }
 
+struct ConnectionContext
+{
+    RedisAsyncContextPtr redisCtx;
+    std::unique_ptr<io::Channel> channel;
+    std::string host;
+    uint16_t port;
+    Scheduler * scheduler;
+    enum class State
+    {
+        Connected,
+        Disconnecting,
+        Disconnected
+    };
+    State state{ State::Connected };
+    std::unique_ptr<Promise<>> connectPromise;
+    std::unique_ptr<Promise<>> disconnectPromise;
+};
+
 Task<std::unique_ptr<RedisConnection>> RedisConnection::connect(std::string host, uint16_t port, Scheduler * scheduler)
 {
     NITRO_TRACE("[Redis] Connecting to %s:%hu", host.c_str(), port);
@@ -94,7 +112,7 @@ Task<std::unique_ptr<RedisConnection>> RedisConnection::connect(std::string host
     ret = redisAsyncSetDisconnectCallback(redisCtx, [](const redisAsyncContext * c, int status) {
         auto * ctx = static_cast<ConnectionContext *>(c->ev.data);
         NITRO_TRACE("[Redis] Disconnect callback: status=%d", status);
-        ctx->running = false;
+        ctx->state = ConnectionContext::State::Disconnected;
 
         if (ctx->channel)
         {
@@ -102,7 +120,7 @@ Task<std::unique_ptr<RedisConnection>> RedisConnection::connect(std::string host
             ctx->channel->cancelAll();
         }
 
-        void * _ = ctx->redisCtx.release();
+        [[maybe_unused]] void * _ = ctx->redisCtx.release();
 
         if (ctx->disconnectPromise)
             ctx->disconnectPromise->set_value();
@@ -117,15 +135,11 @@ Task<std::unique_ptr<RedisConnection>> RedisConnection::connect(std::string host
     scheduler->spawn([connCtx]() -> Task<> {
         NITRO_TRACE("[Redis] Read coroutine started");
         co_await connCtx->channel->performRead([&](int, Channel *) -> Channel::IoStatus {
-            if (!connCtx->running)
-            {
+            if (connCtx->state == ConnectionContext::State::Disconnected)
                 return Channel::IoStatus::Success;
-            }
             redisAsyncHandleRead(connCtx->redisCtx.get());
-            if (!connCtx->running)
-            {
+            if (connCtx->state == ConnectionContext::State::Disconnected)
                 return Channel::IoStatus::Success;
-            }
             return Channel::IoStatus::NeedRead;
         });
         NITRO_TRACE("[Redis] Read coroutine finished");
@@ -133,16 +147,17 @@ Task<std::unique_ptr<RedisConnection>> RedisConnection::connect(std::string host
 
     scheduler->spawn([connCtx]() -> Task<> {
         NITRO_TRACE("[Redis] Write coroutine started");
+        // hack: reset the initial writable flag
+        co_await connCtx->channel->perform([&](int, Channel *) -> Channel::IoStatus {
+            return Channel::IoStatus::ExhaustWrite;
+        });
+
         co_await connCtx->channel->performWrite([&](int, Channel *) -> Channel::IoStatus {
-            if (!connCtx->running)
-            {
+            if (connCtx->state == ConnectionContext::State::Disconnected)
                 return Channel::IoStatus::Success;
-            }
             redisAsyncHandleWrite(connCtx->redisCtx.get());
-            if (!connCtx->running)
-            {
+            if (connCtx->state == ConnectionContext::State::Disconnected)
                 return Channel::IoStatus::Success;
-            }
             return Channel::IoStatus::NeedWrite;
         });
         NITRO_TRACE("[Redis] Write coroutine finished");
@@ -183,21 +198,12 @@ RedisConnectionImpl::~RedisConnectionImpl()
     if (!ctx_)
         return;
     ctx_->scheduler->dispatch([ctx = std::move(ctx_)]() {
-        if (!ctx->running)
+        if (ctx->state != ConnectionContext::State::Connected)
             return;
-        ctx->running = false;
+        ctx->state = ConnectionContext::State::Disconnecting;
 
-        if (ctx->channel)
-        {
-            ctx->channel->disableAll();
-            ctx->channel->cancelAll();
-        }
-
-        if (ctx->redisCtx && !ctx->disconnecting)
-        {
-            ctx->disconnecting = true;
+        if (ctx->redisCtx)
             redisAsyncDisconnect(ctx->redisCtx.get());
-        }
     });
 }
 
@@ -217,15 +223,15 @@ uint16_t RedisConnectionImpl::port() const
 
 bool RedisConnectionImpl::isAlive() const
 {
-    return ctx_ && ctx_->running && !ctx_->disconnecting;
+    return ctx_ && ctx_->state == ConnectionContext::State::Connected;
 }
 
 Task<RedisResult> RedisConnectionImpl::executeFormatted(const char * cmd, int len)
 {
     if (!ctx_)
         throw std::runtime_error("RedisConnection is not connected");
-    if (ctx_->disconnecting)
-        throw std::runtime_error("Connection is disconnecting");
+    if (ctx_->state != ConnectionContext::State::Connected)
+        throw std::runtime_error("Connection is not available");
 
     struct CallbackContext
     {
@@ -242,7 +248,7 @@ Task<RedisResult> RedisConnectionImpl::executeFormatted(const char * cmd, int le
             auto * r = static_cast<redisReply *>(reply);
             if (!r)
             {
-                cbCtx->promise.set_exception(std::make_exception_ptr(std::runtime_error("No reply")));
+                cbCtx->promise.set_exception(std::make_exception_ptr(std::runtime_error("Connection lost")));
                 return;
             }
             try

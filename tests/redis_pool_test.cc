@@ -134,7 +134,7 @@ NITRO_TEST(test_pooled_connection_is_alive)
     NITRO_INFO("PooledConnection isAlive test passed");
 }
 
-int main()
+int main(int argc, char ** argv)
 {
-    return nitrocoro::test::run_all();
+    return nitrocoro::test::run_all(argc, argv);
 }

@@ -26,18 +26,7 @@ struct RedisAsyncDeleter
 
 using RedisAsyncContextPtr = std::unique_ptr<redisAsyncContext, RedisAsyncDeleter>;
 
-struct ConnectionContext
-{
-    RedisAsyncContextPtr redisCtx;
-    std::unique_ptr<io::Channel> channel;
-    std::string host;
-    uint16_t port;
-    Scheduler * scheduler;
-    bool running{ true };
-    bool disconnecting{ false };
-    std::unique_ptr<Promise<>> connectPromise;
-    std::unique_ptr<Promise<>> disconnectPromise;
-};
+struct ConnectionContext;
 
 class RedisConnectionImpl : public RedisConnection
 {

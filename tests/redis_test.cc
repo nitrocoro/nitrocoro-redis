@@ -18,6 +18,19 @@ static int getPort()
     return env ? std::stoi(env) : 6379;
 }
 
+NITRO_TEST(tt)
+{
+    auto conn = co_await RedisConnection::connect(getHost(), getPort());
+    NITRO_INFO("Connected to Redis");
+
+    while (true)
+    {
+        auto result = co_await conn->execute("PING");
+        NITRO_INFO("PING result: %s", std::string(result.asString()).c_str());
+        co_await Scheduler::current()->sleep_for(std::chrono::seconds(1));
+    }
+}
+
 NITRO_TEST(test_redis_client)
 {
     NITRO_INFO("Testing RedisClient");
@@ -261,7 +274,7 @@ NITRO_TEST(test_redis_error_handling)
     co_return;
 }
 
-int main()
+int main(int argc, char ** argv)
 {
-    return nitrocoro::test::run_all();
+    return nitrocoro::test::run_all(argc, argv);
 }

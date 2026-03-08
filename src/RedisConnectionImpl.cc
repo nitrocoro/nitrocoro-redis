@@ -175,15 +175,11 @@ RedisConnectionImpl::~RedisConnectionImpl()
 
 const std::string & RedisConnectionImpl::host() const
 {
-    if (!ctx_)
-        throw std::runtime_error("RedisConnection is not connected");
     return ctx_->host;
 }
 
 uint16_t RedisConnectionImpl::port() const
 {
-    if (!ctx_)
-        throw std::runtime_error("RedisConnection is not connected");
     return ctx_->port;
 }
 
@@ -194,8 +190,6 @@ bool RedisConnectionImpl::isAlive() const
 
 Task<RedisResult> RedisConnectionImpl::executeFormatted(const char * cmd, int len)
 {
-    if (!ctx_)
-        throw std::runtime_error("RedisConnection is not connected");
     if (ctx_->state != ConnectionContext::State::Connected)
         throw std::runtime_error("Connection is not available");
 
